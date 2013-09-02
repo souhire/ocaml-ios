@@ -1,0 +1,2730 @@
+Only in ocaml-3.12.1/asmcomp: arch.cmi
+Only in ocaml-3.12.1/asmcomp: arch.cmo
+Only in ocaml-3.12.1/asmcomp: arch.ml
+diff -r -C 2 ocaml-3.12.1.orig/asmcomp/arm/emit.mlp ocaml-3.12.1/asmcomp/arm/emit.mlp
+*** ocaml-3.12.1.orig/asmcomp/arm/emit.mlp	2010-04-22 11:33:18.000000000 +0200
+--- ocaml-3.12.1/asmcomp/arm/emit.mlp	2013-08-07 14:30:44.556192418 +0200
+***************
+*** 31,41 ****
+  (* Output a label *)
+  
+  let emit_label lbl =
+!   emit_string ".L"; emit_int lbl
+  
+  (* Output a symbol *)
+  
+  let emit_symbol s =
+!   Emitaux.emit_symbol '$' s
+  
+  (* Output a pseudo-register *)
+--- 31,64 ----
+  (* Output a label *)
+  
++ let label_prefix =
++   match Config.system with
++     "linux_elf" -> ".L"
++   | "bsd_elf" -> ".L"
++   | "solaris" -> ".L"
++   | "beos" -> ".L"
++   | "gnu" -> ".L"
++   | _ -> "L"
++ 
+  let emit_label lbl =
+!   emit_string label_prefix; emit_int lbl
+  
+  (* Output a symbol *)
+  
++ let symbol_prefix =
++   match Config.system with
++     "linux_elf" -> ""
++   | "bsd_elf" -> ""
++   | "solaris" -> ""
++   | "beos" -> ""
++   | "gnu" -> ""
++   | _ -> "_"
++ 
+  let emit_symbol s =
+!   emit_string symbol_prefix; Emitaux.emit_symbol '$' s
+! 
+! let global_dir =
+!   match Config.system with
+!   | "macosx" -> ".globl"
+!   | _ -> ".global"
+  
+  (* Output a pseudo-register *)
+***************
+*** 311,315 ****
+            let lbl = label_constant symbol_constants s 1 in
+            `	ldr	r12, {emit_label lbl} @ {emit_symbol s}\n`;
+!           `{record_frame i.live}	bl	caml_c_call\n`; 2
+          end else begin
+            `	bl	{emit_symbol s}\n`; 1
+--- 334,338 ----
+            let lbl = label_constant symbol_constants s 1 in
+            `	ldr	r12, {emit_label lbl} @ {emit_symbol s}\n`;
+!           `{record_frame i.live}	bl	{emit_symbol "caml_c_call"}\n`; 2
+          end else begin
+            `	bl	{emit_symbol s}\n`; 1
+***************
+*** 363,375 ****
+            `	sub	alloc_ptr, alloc_ptr, r12\n`;
+            `	cmp	alloc_ptr, alloc_limit\n`;
+!           `{record_frame i.live}	blcc    caml_call_gc\n`;
+            `	add	{emit_reg i.res.(0)}, alloc_ptr, #4\n`;
+            4 + ni
+          end else if n = 8 || n = 12 || n = 16 then begin
+!           `{record_frame i.live}	bl	caml_alloc{emit_int ((n-4)/4)}\n`;
+            `	add	{emit_reg i.res.(0)}, alloc_ptr, #4\n`; 2
+          end else begin
+            let ni = emit_intconst (phys_reg 8 (*r12*)) (Nativeint.of_int n) in
+!           `{record_frame i.live}	bl	caml_allocN\n`;
+            `	add	{emit_reg i.res.(0)}, alloc_ptr, #4\n`;
+            2 + ni
+--- 386,398 ----
+            `	sub	alloc_ptr, alloc_ptr, r12\n`;
+            `	cmp	alloc_ptr, alloc_limit\n`;
+!           `{record_frame i.live}	blcc    {emit_symbol "caml_call_gc"}\n`;
+            `	add	{emit_reg i.res.(0)}, alloc_ptr, #4\n`;
+            4 + ni
+          end else if n = 8 || n = 12 || n = 16 then begin
+!           `{record_frame i.live}	bl	{emit_symbol "caml_alloc"}{emit_int ((n-4)/4)}\n`;
+            `	add	{emit_reg i.res.(0)}, alloc_ptr, #4\n`; 2
+          end else begin
+            let ni = emit_intconst (phys_reg 8 (*r12*)) (Nativeint.of_int n) in
+!           `{record_frame i.live}	bl	{emit_symbol "caml_allocN"}\n`;
+            `	add	{emit_reg i.res.(0)}, alloc_ptr, #4\n`;
+            2 + ni
+***************
+*** 385,389 ****
+      | Lop(Iintop(Icheckbound)) ->
+          `	cmp	{emit_reg i.arg.(0)}, {emit_reg i.arg.(1)}\n`;
+!         `	blls	caml_ml_array_bound_error\n`; 2
+      | Lop(Iintop op) ->
+          let instr = name_for_int_operation op in
+--- 408,412 ----
+      | Lop(Iintop(Icheckbound)) ->
+          `	cmp	{emit_reg i.arg.(0)}, {emit_reg i.arg.(1)}\n`;
+!         `	blls	{emit_symbol "caml_ml_array_bound_error"}\n`; 2
+      | Lop(Iintop op) ->
+          let instr = name_for_int_operation op in
+***************
+*** 422,426 ****
+      | Lop(Iintop_imm(Icheckbound, n)) ->
+          `	cmp	{emit_reg i.arg.(0)}, #{emit_int n}\n`;
+!         `	blls	caml_ml_array_bound_error\n`; 2
+      | Lop(Iintop_imm(op, n)) ->
+          let instr = name_for_int_operation op in
+--- 445,449 ----
+      | Lop(Iintop_imm(Icheckbound, n)) ->
+          `	cmp	{emit_reg i.arg.(0)}, #{emit_int n}\n`;
+!         `	blls	{emit_symbol "caml_ml_array_bound_error"}\n`; 2
+      | Lop(Iintop_imm(op, n)) ->
+          let instr = name_for_int_operation op in
+***************
+*** 441,445 ****
+      | Lop(Ispecific(Ishiftcheckbound shift)) ->
+          `	cmp	{emit_reg i.arg.(1)}, {emit_reg i.arg.(0)}, lsr #{emit_int shift}\n`;
+!         `	blcs	caml_ml_array_bound_error\n`; 2
+      | Lop(Ispecific(Irevsubimm n)) ->
+          `	rsb	{emit_reg i.res.(0)}, {emit_reg i.arg.(0)}, #{emit_int n}\n`; 1
+--- 464,468 ----
+      | Lop(Ispecific(Ishiftcheckbound shift)) ->
+          `	cmp	{emit_reg i.arg.(1)}, {emit_reg i.arg.(0)}, lsr #{emit_int shift}\n`;
+!         `	blcs	{emit_symbol "caml_ml_array_bound_error"}\n`; 2
+      | Lop(Ispecific(Irevsubimm n)) ->
+          `	rsb	{emit_reg i.res.(0)}, {emit_reg i.arg.(0)}, #{emit_int n}\n`; 1
+***************
+*** 556,560 ****
+    `	.text\n`;
+    `	.align	2\n`;
+!   `	.global	{emit_symbol fundecl.fun_name}\n`;
+    `{emit_symbol fundecl.fun_name}:\n`;
+    let n = frame_size() in
+--- 579,583 ----
+    `	.text\n`;
+    `	.align	2\n`;
+!   `	{emit_string global_dir}	{emit_symbol fundecl.fun_name}\n`;
+    `{emit_symbol fundecl.fun_name}:\n`;
+    let n = frame_size() in
+***************
+*** 570,574 ****
+  let emit_item = function
+      Cglobal_symbol s ->
+!       `	.global	{emit_symbol s}\n`;
+    | Cdefine_symbol s ->
+        `{emit_symbol s}:\n`
+--- 593,597 ----
+  let emit_item = function
+      Cglobal_symbol s ->
+!       `	{emit_string global_dir}	{emit_symbol s}\n`;
+    | Cdefine_symbol s ->
+        `{emit_symbol s}:\n`
+***************
+*** 605,618 ****
+  
+  let begin_assembly() =
+!   `trap_ptr     .req    r11\n`;
+!   `alloc_ptr    .req    r8\n`;
+!   `alloc_limit  .req    r10\n`;
+    let lbl_begin = Compilenv.make_symbol (Some "data_begin") in
+    `	.data\n`;
+!   `	.global	{emit_symbol lbl_begin}\n`;
+    `{emit_symbol lbl_begin}:\n`;
+    let lbl_begin = Compilenv.make_symbol (Some "code_begin") in
+    `	.text\n`;
+!   `	.global	{emit_symbol lbl_begin}\n`;
+    `{emit_symbol lbl_begin}:\n`
+  
+--- 628,641 ----
+  
+  let begin_assembly() =
+!   `trap_ptr .req r11\n`;
+!   `alloc_ptr .req r8\n`;
+!   `alloc_limit .req r10\n`;
+    let lbl_begin = Compilenv.make_symbol (Some "data_begin") in
+    `	.data\n`;
+!   `	{emit_string global_dir}	{emit_symbol lbl_begin}\n`;
+    `{emit_symbol lbl_begin}:\n`;
+    let lbl_begin = Compilenv.make_symbol (Some "code_begin") in
+    `	.text\n`;
+!   `	{emit_string global_dir}	{emit_symbol lbl_begin}\n`;
+    `{emit_symbol lbl_begin}:\n`
+  
+***************
+*** 620,633 ****
+    let lbl_end = Compilenv.make_symbol (Some "code_end") in
+    `	.text\n`;
+!   `	.global	{emit_symbol lbl_end}\n`;
+    `{emit_symbol lbl_end}:\n`;
+    let lbl_end = Compilenv.make_symbol (Some "data_end") in
+    `	.data\n`;
+!   `	.global	{emit_symbol lbl_end}\n`;
+    `{emit_symbol lbl_end}:\n`;
+    `	.word	0\n`;
+    let lbl = Compilenv.make_symbol (Some "frametable") in
+    `	.data\n`;
+!   `	.global	{emit_symbol lbl}\n`;
+    `{emit_symbol lbl}:\n`;
+    `	.word	{emit_int (List.length !frame_descriptors)}\n`;
+--- 643,656 ----
+    let lbl_end = Compilenv.make_symbol (Some "code_end") in
+    `	.text\n`;
+!   `	{emit_string global_dir}	{emit_symbol lbl_end}\n`;
+    `{emit_symbol lbl_end}:\n`;
+    let lbl_end = Compilenv.make_symbol (Some "data_end") in
+    `	.data\n`;
+!   `	{emit_string global_dir}	{emit_symbol lbl_end}\n`;
+    `{emit_symbol lbl_end}:\n`;
+    `	.word	0\n`;
+    let lbl = Compilenv.make_symbol (Some "frametable") in
+    `	.data\n`;
+!   `	{emit_string global_dir}	{emit_symbol lbl}\n`;
+    `{emit_symbol lbl}:\n`;
+    `	.word	{emit_int (List.length !frame_descriptors)}\n`;
+Only in ocaml-3.12.1/asmcomp: asmgen.cmi
+Only in ocaml-3.12.1/asmcomp: asmgen.cmo
+Only in ocaml-3.12.1/asmcomp: asmlibrarian.cmi
+Only in ocaml-3.12.1/asmcomp: asmlibrarian.cmo
+Only in ocaml-3.12.1/asmcomp: asmlink.cmi
+Only in ocaml-3.12.1/asmcomp: asmlink.cmo
+Only in ocaml-3.12.1/asmcomp: asmpackager.cmi
+Only in ocaml-3.12.1/asmcomp: asmpackager.cmo
+Only in ocaml-3.12.1/asmcomp: clambda.cmi
+Only in ocaml-3.12.1/asmcomp: clambda.cmo
+Only in ocaml-3.12.1/asmcomp: closure.cmi
+Only in ocaml-3.12.1/asmcomp: closure.cmo
+Only in ocaml-3.12.1/asmcomp: cmm.cmi
+Only in ocaml-3.12.1/asmcomp: cmm.cmo
+Only in ocaml-3.12.1/asmcomp: cmmgen.cmi
+Only in ocaml-3.12.1/asmcomp: cmmgen.cmo
+diff -r -C 2 ocaml-3.12.1.orig/asmcomp/cmmgen.ml ocaml-3.12.1/asmcomp/cmmgen.ml
+*** ocaml-3.12.1.orig/asmcomp/cmmgen.ml	2010-11-11 18:08:07.000000000 +0100
+--- ocaml-3.12.1/asmcomp/cmmgen.ml	2013-08-07 14:30:44.556192418 +0200
+***************
+*** 1669,1673 ****
+      Csymbol_address("caml_int64_ops") :: Cint lo :: cont
+    else begin
+!     let hi = Int64.to_nativeint (Int64.shift_right n 32) in
+      if big_endian then
+        Csymbol_address("caml_int64_ops") :: Cint hi :: Cint lo :: cont
+--- 1669,1675 ----
+      Csymbol_address("caml_int64_ops") :: Cint lo :: cont
+    else begin
+!     assert (size_int = 4);
+!     let lo = Int64.to_nativeint (Int64.shift_right_logical (Int64.shift_left n 32) 32) in
+!     let hi = Int64.to_nativeint (Int64.shift_right_logical n 32) in
+      if big_endian then
+        Csymbol_address("caml_int64_ops") :: Cint hi :: Cint lo :: cont
+Only in ocaml-3.12.1/asmcomp: cmmgen.ml.orig
+Only in ocaml-3.12.1/asmcomp: cmx_format.cmi
+Only in ocaml-3.12.1/asmcomp: coloring.cmi
+Only in ocaml-3.12.1/asmcomp: coloring.cmo
+Only in ocaml-3.12.1/asmcomp: comballoc.cmi
+Only in ocaml-3.12.1/asmcomp: comballoc.cmo
+Only in ocaml-3.12.1/asmcomp: compilenv.cmi
+Only in ocaml-3.12.1/asmcomp: compilenv.cmo
+Only in ocaml-3.12.1/asmcomp: debuginfo.cmi
+Only in ocaml-3.12.1/asmcomp: debuginfo.cmo
+Only in ocaml-3.12.1/asmcomp: emitaux.cmi
+Only in ocaml-3.12.1/asmcomp: emitaux.cmo
+Only in ocaml-3.12.1/asmcomp: emit.cmi
+Only in ocaml-3.12.1/asmcomp: emit.cmo
+Only in ocaml-3.12.1/asmcomp: emit.ml
+Only in ocaml-3.12.1/asmcomp: interf.cmi
+Only in ocaml-3.12.1/asmcomp: interf.cmo
+Only in ocaml-3.12.1/asmcomp: linearize.cmi
+Only in ocaml-3.12.1/asmcomp: linearize.cmo
+Only in ocaml-3.12.1/asmcomp: liveness.cmi
+Only in ocaml-3.12.1/asmcomp: liveness.cmo
+Only in ocaml-3.12.1/asmcomp: mach.cmi
+Only in ocaml-3.12.1/asmcomp: mach.cmo
+Only in ocaml-3.12.1/asmcomp: printcmm.cmi
+Only in ocaml-3.12.1/asmcomp: printcmm.cmo
+Only in ocaml-3.12.1/asmcomp: printlinear.cmi
+Only in ocaml-3.12.1/asmcomp: printlinear.cmo
+Only in ocaml-3.12.1/asmcomp: printmach.cmi
+Only in ocaml-3.12.1/asmcomp: printmach.cmo
+Only in ocaml-3.12.1/asmcomp: proc.cmi
+Only in ocaml-3.12.1/asmcomp: proc.cmo
+Only in ocaml-3.12.1/asmcomp: proc.ml
+Only in ocaml-3.12.1/asmcomp: reg.cmi
+Only in ocaml-3.12.1/asmcomp: reg.cmo
+Only in ocaml-3.12.1/asmcomp: reload.cmi
+Only in ocaml-3.12.1/asmcomp: reload.cmo
+Only in ocaml-3.12.1/asmcomp: reloadgen.cmi
+Only in ocaml-3.12.1/asmcomp: reloadgen.cmo
+Only in ocaml-3.12.1/asmcomp: reload.ml
+Only in ocaml-3.12.1/asmcomp: schedgen.cmi
+Only in ocaml-3.12.1/asmcomp: schedgen.cmo
+Only in ocaml-3.12.1/asmcomp: scheduling.cmi
+Only in ocaml-3.12.1/asmcomp: scheduling.cmo
+Only in ocaml-3.12.1/asmcomp: scheduling.ml
+Only in ocaml-3.12.1/asmcomp: selectgen.cmi
+Only in ocaml-3.12.1/asmcomp: selectgen.cmo
+Only in ocaml-3.12.1/asmcomp: selection.cmi
+Only in ocaml-3.12.1/asmcomp: selection.cmo
+Only in ocaml-3.12.1/asmcomp: selection.ml
+Only in ocaml-3.12.1/asmcomp: spill.cmi
+Only in ocaml-3.12.1/asmcomp: spill.cmo
+Only in ocaml-3.12.1/asmcomp: split.cmi
+Only in ocaml-3.12.1/asmcomp: split.cmo
+Only in ocaml-3.12.1/asmrun: alloc.c
+Only in ocaml-3.12.1/asmrun: alloc.o
+Only in ocaml-3.12.1/asmrun: arm.o
+diff -r -C 2 ocaml-3.12.1.orig/asmrun/arm.S ocaml-3.12.1/asmrun/arm.S
+*** ocaml-3.12.1.orig/asmrun/arm.S	2009-05-04 15:46:46.000000000 +0200
+--- ocaml-3.12.1/asmrun/arm.S	2013-08-07 14:30:44.560192418 +0200
+***************
+*** 16,19 ****
+--- 16,38 ----
+  /* Asm part of the runtime system, ARM processor */
+  
++ /* Linux/BSD with ELF binaries and Solaris do not prefix identifiers with _.
++    Linux/BSD with a.out binaries and NextStep do.
++    Copied from asmrun/i386.S */
++ 
++ #if defined(SYS_solaris)
++ #define CONCAT(a,b) a/**/b
++ #else
++ #define CONCAT(a,b) a##b
++ #endif
++ 
++ #if defined(SYS_linux_elf) || defined(SYS_bsd_elf) \
++  || defined(SYS_solaris) || defined(SYS_beos) || defined(SYS_gnu)
++ #define G(x) x
++ #define LBL(x) CONCAT(.L,x)
++ #else
++ #define G(x) CONCAT(_,x)
++ #define LBL(x) CONCAT(L,x)
++ #endif
++ 
+  trap_ptr        .req    r11
+  alloc_ptr       .req    r8
+***************
+*** 24,85 ****
+  /* Allocation functions and GC interface */
+  
+!         .globl caml_call_gc
+! caml_call_gc:
+      /* Record return address and desired size */
+      /* Can use alloc_limit as a temporary since it will be reloaded by
+         invoke_gc */
+!         ldr     alloc_limit, .Lcaml_last_return_address
+          str     lr, [alloc_limit, #0]
+!         ldr     alloc_limit, .Lcaml_requested_size
+          str     r12, [alloc_limit, #0]
+      /* Branch to shared GC code */
+!         bl      .Linvoke_gc
+      /* Finish allocation */
+! 	ldr	r12, .Lcaml_requested_size
+  	ldr	r12, [r12, #0]
+  	sub	alloc_ptr, alloc_ptr, r12
+          bx      lr
+  
+!         .globl caml_alloc1
+! caml_alloc1:
+          sub     alloc_ptr, alloc_ptr, #8
+          cmp     alloc_ptr, alloc_limit
+          movcs   pc, lr                /* Return if alloc_ptr >= alloc_limit */
+      /* Record return address */
+!         ldr     r12, .Lcaml_last_return_address
+          str     lr, [r12, #0]
+      /* Invoke GC */
+!         bl      .Linvoke_gc
+      /* Try again */
+!         b       caml_alloc1
+  
+!         .globl caml_alloc2
+! caml_alloc2:
+          sub     alloc_ptr, alloc_ptr, #12
+          cmp     alloc_ptr, alloc_limit
+          movcs   pc, lr                /* Return if alloc_ptr >= alloc_limit */
+      /* Record return address */
+!         ldr     r12, .Lcaml_last_return_address
+          str     lr, [r12, #0]
+      /* Invoke GC */
+!         bl      .Linvoke_gc
+      /* Try again */
+!         b       caml_alloc2
+  
+!         .globl caml_alloc3
+! caml_alloc3:
+          sub     alloc_ptr, alloc_ptr, #16
+          cmp     alloc_ptr, alloc_limit
+          movcs   pc, lr                /* Return if alloc_ptr >= alloc_limit */
+      /* Record return address */
+!         ldr     r12, .Lcaml_last_return_address
+          str     lr, [r12, #0]
+      /* Invoke GC */
+!         bl      .Linvoke_gc
+      /* Try again */
+!         b       caml_alloc3
+  
+!         .globl caml_allocN
+! caml_allocN:
+          sub     alloc_ptr, alloc_ptr, r12
+          cmp     alloc_ptr, alloc_limit
+--- 43,104 ----
+  /* Allocation functions and GC interface */
+  
+!         .globl G(caml_call_gc)
+! G(caml_call_gc):
+      /* Record return address and desired size */
+      /* Can use alloc_limit as a temporary since it will be reloaded by
+         invoke_gc */
+!         ldr     alloc_limit, LBL(caml_last_return_address)
+          str     lr, [alloc_limit, #0]
+!         ldr     alloc_limit, LBL(caml_requested_size)
+          str     r12, [alloc_limit, #0]
+      /* Branch to shared GC code */
+!         bl      LBL(invoke_gc)
+      /* Finish allocation */
+! 	ldr	r12, LBL(caml_requested_size)
+  	ldr	r12, [r12, #0]
+  	sub	alloc_ptr, alloc_ptr, r12
+          bx      lr
+  
+!         .globl G(caml_alloc1)
+! G(caml_alloc1):
+          sub     alloc_ptr, alloc_ptr, #8
+          cmp     alloc_ptr, alloc_limit
+          movcs   pc, lr                /* Return if alloc_ptr >= alloc_limit */
+      /* Record return address */
+!         ldr     r12, LBL(caml_last_return_address)
+          str     lr, [r12, #0]
+      /* Invoke GC */
+!         bl      LBL(invoke_gc)
+      /* Try again */
+!         b       G(caml_alloc1)
+  
+!         .globl G(caml_alloc2)
+! G(caml_alloc2):
+          sub     alloc_ptr, alloc_ptr, #12
+          cmp     alloc_ptr, alloc_limit
+          movcs   pc, lr                /* Return if alloc_ptr >= alloc_limit */
+      /* Record return address */
+!         ldr     r12, LBL(caml_last_return_address)
+          str     lr, [r12, #0]
+      /* Invoke GC */
+!         bl      LBL(invoke_gc)
+      /* Try again */
+!         b       G(caml_alloc2)
+  
+!         .globl G(caml_alloc3)
+! G(caml_alloc3):
+          sub     alloc_ptr, alloc_ptr, #16
+          cmp     alloc_ptr, alloc_limit
+          movcs   pc, lr                /* Return if alloc_ptr >= alloc_limit */
+      /* Record return address */
+!         ldr     r12, LBL(caml_last_return_address)
+          str     lr, [r12, #0]
+      /* Invoke GC */
+!         bl      LBL(invoke_gc)
+      /* Try again */
+!         b       G(caml_alloc3)
+  
+!         .globl G(caml_allocN)
+! G(caml_allocN):
+          sub     alloc_ptr, alloc_ptr, r12
+          cmp     alloc_ptr, alloc_limit
+***************
+*** 88,129 ****
+      /* Can use alloc_limit as a temporary since it will be reloaded by
+         invoke_gc */
+!         ldr     alloc_limit, .Lcaml_last_return_address
+          str     lr, [alloc_limit, #0]
+!         ldr     alloc_limit, .Lcaml_requested_size
+          str     r12, [alloc_limit, #0]
+      /* Invoke GC */
+!         bl      .Linvoke_gc
+      /* Try again */
+! 	ldr	r12, .Lcaml_requested_size
+  	ldr	r12, [r12, #0]
+!         b       caml_allocN
+  
+  /* Shared code to invoke the GC */
+! .Linvoke_gc:
+      /* Record lowest stack address */
+!         ldr     r12, .Lcaml_bottom_of_stack
+          str     sp, [r12, #0]
+      /* Save integer registers and return address on stack */
+          stmfd   sp!, {r0,r1,r2,r3,r4,r5,r6,r7,r12,lr}
+      /* Store pointer to saved integer registers in caml_gc_regs */
+!         ldr     r12, .Lcaml_gc_regs
+          str     sp, [r12, #0]
+      /* Save current allocation pointer for debugging purposes */
+!         ldr     r12, .Lcaml_young_ptr
+          str     alloc_ptr, [r12, #0]
+      /* Save trap pointer in case an exception is raised during GC */
+!         ldr     r12, .Lcaml_exception_pointer
+          str     trap_ptr, [r12, #0]
+      /* Call the garbage collector */
+!         bl      caml_garbage_collection
+      /* Restore the registers from the stack */
+          ldmfd   sp!, {r0,r1,r2,r3,r4,r5,r6,r7,r12}
+      /* Reload return address */
+!         ldr     r12, .Lcaml_last_return_address
+          ldr     lr, [r12, #0]
+      /* Reload new allocation pointer and allocation limit */
+!         ldr     r12, .Lcaml_young_ptr
+          ldr     alloc_ptr, [r12, #0]
+!         ldr     r12, .Lcaml_young_limit
+          ldr     alloc_limit, [r12, #0]
+      /* Return to caller */
+--- 107,148 ----
+      /* Can use alloc_limit as a temporary since it will be reloaded by
+         invoke_gc */
+!         ldr     alloc_limit, LBL(caml_last_return_address)
+          str     lr, [alloc_limit, #0]
+!         ldr     alloc_limit, LBL(caml_requested_size)
+          str     r12, [alloc_limit, #0]
+      /* Invoke GC */
+!         bl      LBL(invoke_gc)
+      /* Try again */
+! 	ldr	r12, LBL(caml_requested_size)
+  	ldr	r12, [r12, #0]
+!         b       G(caml_allocN)
+  
+  /* Shared code to invoke the GC */
+! LBL(invoke_gc):
+      /* Record lowest stack address */
+!         ldr     r12, LBL(caml_bottom_of_stack)
+          str     sp, [r12, #0]
+      /* Save integer registers and return address on stack */
+          stmfd   sp!, {r0,r1,r2,r3,r4,r5,r6,r7,r12,lr}
+      /* Store pointer to saved integer registers in caml_gc_regs */
+!         ldr     r12, LBL(caml_gc_regs)
+          str     sp, [r12, #0]
+      /* Save current allocation pointer for debugging purposes */
+!         ldr     r12, LBL(caml_young_ptr)
+          str     alloc_ptr, [r12, #0]
+      /* Save trap pointer in case an exception is raised during GC */
+!         ldr     r12, LBL(caml_exception_pointer)
+          str     trap_ptr, [r12, #0]
+      /* Call the garbage collector */
+!         bl      G(caml_garbage_collection)
+      /* Restore the registers from the stack */
+          ldmfd   sp!, {r0,r1,r2,r3,r4,r5,r6,r7,r12}
+      /* Reload return address */
+!         ldr     r12, LBL(caml_last_return_address)
+          ldr     lr, [r12, #0]
+      /* Reload new allocation pointer and allocation limit */
+!         ldr     r12, LBL(caml_young_ptr)
+          ldr     alloc_ptr, [r12, #0]
+!         ldr     r12, LBL(caml_young_limit)
+          ldr     alloc_limit, [r12, #0]
+      /* Return to caller */
+***************
+*** 134,149 ****
+  /* Function to call is in r12 */
+  
+!         .globl caml_c_call
+! caml_c_call:
+      /* Preserve return address in callee-save register r4 */
+          mov     r4, lr
+      /* Record lowest stack address and return address */
+!         ldr     r5, .Lcaml_last_return_address
+!         ldr     r6, .Lcaml_bottom_of_stack
+          str     lr, [r5, #0]
+          str     sp, [r6, #0]
+      /* Make the exception handler and alloc ptr available to the C code */
+!         ldr     r6, .Lcaml_young_ptr
+!         ldr     r7, .Lcaml_exception_pointer
+          str     alloc_ptr, [r6, #0]
+          str     trap_ptr, [r7, #0]
+--- 153,168 ----
+  /* Function to call is in r12 */
+  
+!         .globl G(caml_c_call)
+! G(caml_c_call):
+      /* Preserve return address in callee-save register r4 */
+          mov     r4, lr
+      /* Record lowest stack address and return address */
+!         ldr     r5, LBL(caml_last_return_address)
+!         ldr     r6, LBL(caml_bottom_of_stack)
+          str     lr, [r5, #0]
+          str     sp, [r6, #0]
+      /* Make the exception handler and alloc ptr available to the C code */
+!         ldr     r6, LBL(caml_young_ptr)
+!         ldr     r7, LBL(caml_exception_pointer)
+          str     alloc_ptr, [r6, #0]
+          str     trap_ptr, [r7, #0]
+***************
+*** 152,156 ****
+          bx      r12
+      /* Reload alloc ptr and alloc limit */
+!         ldr     r5, .Lcaml_young_limit
+          ldr     alloc_ptr, [r6, #0]    /* r6 still points to caml_young_ptr */
+          ldr     alloc_limit, [r5, #0]
+--- 171,175 ----
+          bx      r12
+      /* Reload alloc ptr and alloc limit */
+!         ldr     r5, LBL(caml_young_limit)
+          ldr     alloc_ptr, [r6, #0]    /* r6 still points to caml_young_ptr */
+          ldr     alloc_limit, [r5, #0]
+***************
+*** 160,166 ****
+  /* Start the Caml program */
+  
+!         .globl caml_start_program
+! caml_start_program:
+!         ldr     r12, .Lcaml_program
+  
+  /* Code shared with caml_callback* */
+--- 179,185 ----
+  /* Start the Caml program */
+  
+!         .globl G(caml_start_program)
+! G(caml_start_program):
+!         ldr     r12, LBL(caml_program)
+  
+  /* Code shared with caml_callback* */
+***************
+*** 168,221 ****
+  /* Arguments to the Caml code are in r0...r3 */
+  
+! .Ljump_to_caml:
+      /* Save return address and callee-save registers */
+          stmfd   sp!, {r4,r5,r6,r7,r8,r10,r11,lr} /* 8-alignment */
+      /* Setup a callback link on the stack */
+          sub     sp, sp, #4*4                    /* 8-alignment */
+!         ldr     r4, .Lcaml_bottom_of_stack
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #0]
+!         ldr     r4, .Lcaml_last_return_address
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #4]
+!         ldr     r4, .Lcaml_gc_regs
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #8]
+      /* Setup a trap frame to catch exceptions escaping the Caml code */
+          sub     sp, sp, #4*2
+!         ldr     r4, .Lcaml_exception_pointer
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #0]
+!         ldr     r4, .LLtrap_handler
+          str     r4, [sp, #4]
+          mov     trap_ptr, sp
+      /* Reload allocation pointers */
+!         ldr     r4, .Lcaml_young_ptr
+          ldr     alloc_ptr, [r4, #0]
+!         ldr     r4, .Lcaml_young_limit
+          ldr     alloc_limit, [r4, #0]
+      /* Call the Caml code */
+          mov     lr, pc
+          bx      r12
+! .Lcaml_retaddr:
+      /* Pop the trap frame, restoring caml_exception_pointer */
+!         ldr     r4, .Lcaml_exception_pointer
+          ldr     r5, [sp, #0]
+          str     r5, [r4, #0]
+          add     sp, sp, #2 * 4
+      /* Pop the callback link, restoring the global variables */
+! .Lreturn_result:
+!         ldr     r4, .Lcaml_bottom_of_stack
+          ldr     r5, [sp, #0]
+          str     r5, [r4, #0]
+!         ldr     r4, .Lcaml_last_return_address
+          ldr     r5, [sp, #4]
+          str     r5, [r4, #0]
+!         ldr     r4, .Lcaml_gc_regs
+          ldr     r5, [sp, #8]
+          str     r5, [r4, #0]
+          add     sp, sp, #4*4
+      /* Update allocation pointer */
+!         ldr     r4, .Lcaml_young_ptr
+          str     alloc_ptr, [r4, #0]
+      /* Reload callee-save registers and return */
+--- 187,240 ----
+  /* Arguments to the Caml code are in r0...r3 */
+  
+! LBL(jump_to_caml):
+      /* Save return address and callee-save registers */
+          stmfd   sp!, {r4,r5,r6,r7,r8,r10,r11,lr} /* 8-alignment */
+      /* Setup a callback link on the stack */
+          sub     sp, sp, #4*4                    /* 8-alignment */
+!         ldr     r4, LBL(caml_bottom_of_stack)
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #0]
+!         ldr     r4, LBL(caml_last_return_address)
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #4]
+!         ldr     r4, LBL(caml_gc_regs)
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #8]
+      /* Setup a trap frame to catch exceptions escaping the Caml code */
+          sub     sp, sp, #4*2
+!         ldr     r4, LBL(caml_exception_pointer)
+          ldr     r4, [r4, #0]
+          str     r4, [sp, #0]
+!         ldr     r4, LBL(Ltrap_handler)
+          str     r4, [sp, #4]
+          mov     trap_ptr, sp
+      /* Reload allocation pointers */
+!         ldr     r4, LBL(caml_young_ptr)
+          ldr     alloc_ptr, [r4, #0]
+!         ldr     r4, LBL(caml_young_limit)
+          ldr     alloc_limit, [r4, #0]
+      /* Call the Caml code */
+          mov     lr, pc
+          bx      r12
+! LBL(caml_retaddr):
+      /* Pop the trap frame, restoring caml_exception_pointer */
+!         ldr     r4, LBL(caml_exception_pointer)
+          ldr     r5, [sp, #0]
+          str     r5, [r4, #0]
+          add     sp, sp, #2 * 4
+      /* Pop the callback link, restoring the global variables */
+! LBL(return_result):
+!         ldr     r4, LBL(caml_bottom_of_stack)
+          ldr     r5, [sp, #0]
+          str     r5, [r4, #0]
+!         ldr     r4, LBL(caml_last_return_address)
+          ldr     r5, [sp, #4]
+          str     r5, [r4, #0]
+!         ldr     r4, LBL(caml_gc_regs)
+          ldr     r5, [sp, #8]
+          str     r5, [r4, #0]
+          add     sp, sp, #4*4
+      /* Update allocation pointer */
+!         ldr     r4, LBL(caml_young_ptr)
+          str     alloc_ptr, [r4, #0]
+      /* Reload callee-save registers and return */
+***************
+*** 224,247 ****
+  
+      /* The trap handler */
+! .Ltrap_handler:
+      /* Save exception pointer */
+!         ldr     r4, .Lcaml_exception_pointer
+          str     trap_ptr, [r4, #0]
+      /* Encode exception bucket as an exception result */
+          orr     r0, r0, #2
+      /* Return it */
+!         b       .Lreturn_result
+  
+  /* Raise an exception from C */
+  
+!         .globl caml_raise_exception
+! caml_raise_exception:
+      /* Reload Caml allocation pointers */
+!         ldr     r12, .Lcaml_young_ptr
+          ldr     alloc_ptr, [r12, #0]
+!         ldr     r12, .Lcaml_young_limit
+          ldr     alloc_limit, [r12, #0]
+      /* Cut stack at current trap handler */
+!         ldr     r12, .Lcaml_exception_pointer
+          ldr     sp, [r12, #0]
+      /* Pop previous handler and addr of trap, and jump to it */
+--- 243,266 ----
+  
+      /* The trap handler */
+! LBL(trap_handler):
+      /* Save exception pointer */
+!         ldr     r4, LBL(caml_exception_pointer)
+          str     trap_ptr, [r4, #0]
+      /* Encode exception bucket as an exception result */
+          orr     r0, r0, #2
+      /* Return it */
+!         b       LBL(return_result)
+  
+  /* Raise an exception from C */
+  
+!         .globl G(caml_raise_exception)
+! G(caml_raise_exception):
+      /* Reload Caml allocation pointers */
+!         ldr     r12, LBL(caml_young_ptr)
+          ldr     alloc_ptr, [r12, #0]
+!         ldr     r12, LBL(caml_young_limit)
+          ldr     alloc_limit, [r12, #0]
+      /* Cut stack at current trap handler */
+!         ldr     r12, LBL(caml_exception_pointer)
+          ldr     sp, [r12, #0]
+      /* Pop previous handler and addr of trap, and jump to it */
+***************
+*** 250,255 ****
+  /* Callback from C to Caml */
+  
+!         .globl caml_callback_exn
+! caml_callback_exn:
+      /* Initial shuffling of arguments (r0 = closure, r1 = first arg) */
+          mov     r12, r0
+--- 269,274 ----
+  /* Callback from C to Caml */
+  
+!         .globl G(caml_callback_exn)
+! G(caml_callback_exn):
+      /* Initial shuffling of arguments (r0 = closure, r1 = first arg) */
+          mov     r12, r0
+***************
+*** 257,264 ****
+          mov     r1, r12           /* r1 = closure environment */
+          ldr     r12, [r12, #0]    /* code pointer */
+!         b       .Ljump_to_caml
+  
+!         .globl caml_callback2_exn
+! caml_callback2_exn:
+      /* Initial shuffling of arguments (r0 = closure, r1 = arg1, r2 = arg2) */
+          mov     r12, r0
+--- 276,283 ----
+          mov     r1, r12           /* r1 = closure environment */
+          ldr     r12, [r12, #0]    /* code pointer */
+!         b       LBL(jump_to_caml)
+  
+!         .globl G(caml_callback2_exn)
+! G(caml_callback2_exn):
+      /* Initial shuffling of arguments (r0 = closure, r1 = arg1, r2 = arg2) */
+          mov     r12, r0
+***************
+*** 266,274 ****
+          mov     r1, r2           /* r1 = second arg */
+          mov     r2, r12          /* r2 = closure environment */
+!         ldr     r12, .Lcaml_apply2
+!         b       .Ljump_to_caml
+  
+!         .globl caml_callback3_exn
+! caml_callback3_exn:
+      /* Initial shuffling of arguments */
+      /* (r0 = closure, r1 = arg1, r2 = arg2, r3 = arg3) */
+--- 285,293 ----
+          mov     r1, r2           /* r1 = second arg */
+          mov     r2, r12          /* r2 = closure environment */
+!         ldr     r12, LBL(caml_apply2)
+!         b       LBL(jump_to_caml)
+  
+!         .globl G(caml_callback3_exn)
+! G(caml_callback3_exn):
+      /* Initial shuffling of arguments */
+      /* (r0 = closure, r1 = arg1, r2 = arg2, r3 = arg3) */
+***************
+*** 278,308 ****
+          mov     r2, r3          /* r2 = third arg */
+          mov     r3, r12         /* r3 = closure environment */
+!         ldr     r12, .Lcaml_apply3
+!         b       .Ljump_to_caml
+  
+!         .globl caml_ml_array_bound_error
+! caml_ml_array_bound_error:
+      /* Load address of [caml_array_bound_error] in r12 */
+!         ldr     r12, .Lcaml_array_bound_error
+      /* Call that function */
+!         b       caml_c_call
+  
+  /* Global references */
+  
+! .Lcaml_last_return_address:     .word caml_last_return_address
+! .Lcaml_bottom_of_stack:         .word caml_bottom_of_stack
+! .Lcaml_gc_regs:                 .word caml_gc_regs
+! .Lcaml_young_ptr:               .word caml_young_ptr
+! .Lcaml_young_limit:             .word caml_young_limit
+! .Lcaml_exception_pointer:       .word caml_exception_pointer
+! .Lcaml_program:                 .word caml_program
+! .LLtrap_handler:                .word .Ltrap_handler
+! .Lcaml_apply2:                  .word caml_apply2
+! .Lcaml_apply3:                  .word caml_apply3
+! .Lcaml_array_bound_error:       .word caml_array_bound_error
+! .Lcaml_requested_size:          .word caml_requested_size
+  
+  	.data
+! caml_requested_size:
+  	.word	0
+  
+--- 297,327 ----
+          mov     r2, r3          /* r2 = third arg */
+          mov     r3, r12         /* r3 = closure environment */
+!         ldr     r12, LBL(caml_apply3)
+!         b       LBL(jump_to_caml)
+  
+!         .globl G(caml_ml_array_bound_error)
+! G(caml_ml_array_bound_error):
+      /* Load address of [caml_array_bound_error] in r12 */
+!         ldr     r12, LBL(caml_array_bound_error)
+      /* Call that function */
+!         b       G(caml_c_call)
+  
+  /* Global references */
+  
+! LBL(caml_last_return_address):     .word G(caml_last_return_address)
+! LBL(caml_bottom_of_stack):         .word G(caml_bottom_of_stack)
+! LBL(caml_gc_regs):                 .word G(caml_gc_regs)
+! LBL(caml_young_ptr):               .word G(caml_young_ptr)
+! LBL(caml_young_limit):             .word G(caml_young_limit)
+! LBL(caml_exception_pointer):       .word G(caml_exception_pointer)
+! LBL(caml_program):                 .word G(caml_program)
+! LBL(Ltrap_handler):                .word LBL(trap_handler)
+! LBL(caml_apply2):                  .word G(caml_apply2)
+! LBL(caml_apply3):                  .word G(caml_apply3)
+! LBL(caml_array_bound_error):       .word G(caml_array_bound_error)
+! LBL(caml_requested_size):          .word G(caml_requested_size)
+  
+  	.data
+! G(caml_requested_size):
+  	.word	0
+  
+***************
+*** 310,317 ****
+  
+          .data
+!         .globl caml_system__frametable
+! caml_system__frametable:
+          .word   1               /* one descriptor */
+!         .word   .Lcaml_retaddr  /* return address into callback */
+          .short  -1              /* negative frame size => use callback link */
+          .short  0               /* no roots */
+--- 329,336 ----
+  
+          .data
+!         .globl G(caml_system__frametable)
+! G(caml_system__frametable):
+          .word   1               /* one descriptor */
+!         .word   LBL(caml_retaddr)  /* return address into callback */
+          .short  -1              /* negative frame size => use callback link */
+          .short  0               /* no roots */
+Only in ocaml-3.12.1/asmrun: array.c
+Only in ocaml-3.12.1/asmrun: array.o
+Only in ocaml-3.12.1/asmrun: backtrace.o
+Only in ocaml-3.12.1/asmrun: callback.c
+Only in ocaml-3.12.1/asmrun: callback.o
+Only in ocaml-3.12.1/asmrun: compact.c
+Only in ocaml-3.12.1/asmrun: compact.o
+Only in ocaml-3.12.1/asmrun: compare.c
+Only in ocaml-3.12.1/asmrun: compare.o
+Only in ocaml-3.12.1/asmrun: custom.c
+Only in ocaml-3.12.1/asmrun: custom.o
+Only in ocaml-3.12.1/asmrun: debugger.c
+Only in ocaml-3.12.1/asmrun: debugger.o
+Only in ocaml-3.12.1/asmrun: extern.c
+Only in ocaml-3.12.1/asmrun: extern.o
+Only in ocaml-3.12.1/asmrun: fail.o
+Only in ocaml-3.12.1/asmrun: finalise.c
+Only in ocaml-3.12.1/asmrun: finalise.o
+Only in ocaml-3.12.1/asmrun: floats.c
+Only in ocaml-3.12.1/asmrun: floats.o
+Only in ocaml-3.12.1/asmrun: freelist.c
+Only in ocaml-3.12.1/asmrun: freelist.o
+Only in ocaml-3.12.1/asmrun: gc_ctrl.c
+Only in ocaml-3.12.1/asmrun: gc_ctrl.o
+Only in ocaml-3.12.1/asmrun: globroots.c
+Only in ocaml-3.12.1/asmrun: globroots.o
+Only in ocaml-3.12.1/asmrun: hash.c
+Only in ocaml-3.12.1/asmrun: hash.o
+Only in ocaml-3.12.1/asmrun: intern.c
+Only in ocaml-3.12.1/asmrun: intern.o
+Only in ocaml-3.12.1/asmrun: ints.c
+Only in ocaml-3.12.1/asmrun: ints.o
+Only in ocaml-3.12.1/asmrun: io.c
+Only in ocaml-3.12.1/asmrun: io.o
+Only in ocaml-3.12.1/asmrun: lexing.c
+Only in ocaml-3.12.1/asmrun: lexing.o
+Only in ocaml-3.12.1/asmrun: libasmrun.a
+Only in ocaml-3.12.1/asmrun: main.c
+Only in ocaml-3.12.1/asmrun: main.o
+Only in ocaml-3.12.1/asmrun: major_gc.c
+Only in ocaml-3.12.1/asmrun: major_gc.o
+Only in ocaml-3.12.1/asmrun: md5.c
+Only in ocaml-3.12.1/asmrun: md5.o
+Only in ocaml-3.12.1/asmrun: memory.c
+Only in ocaml-3.12.1/asmrun: memory.o
+Only in ocaml-3.12.1/asmrun: minor_gc.c
+Only in ocaml-3.12.1/asmrun: minor_gc.o
+Only in ocaml-3.12.1/asmrun: misc.c
+Only in ocaml-3.12.1/asmrun: misc.o
+Only in ocaml-3.12.1/asmrun: natdynlink.o
+Only in ocaml-3.12.1/asmrun: obj.c
+Only in ocaml-3.12.1/asmrun: obj.o
+Only in ocaml-3.12.1/asmrun: parsing.c
+Only in ocaml-3.12.1/asmrun: parsing.o
+Only in ocaml-3.12.1/asmrun: printexc.c
+Only in ocaml-3.12.1/asmrun: printexc.o
+Only in ocaml-3.12.1/asmrun: roots.o
+Only in ocaml-3.12.1/asmrun: signals_asm.o
+Only in ocaml-3.12.1/asmrun: signals.c
+Only in ocaml-3.12.1/asmrun: signals.o
+Only in ocaml-3.12.1/asmrun: startup.o
+Only in ocaml-3.12.1/asmrun: str.c
+Only in ocaml-3.12.1/asmrun: str.o
+Only in ocaml-3.12.1/asmrun: sys.c
+Only in ocaml-3.12.1/asmrun: sys.o
+Only in ocaml-3.12.1/asmrun: terminfo.c
+Only in ocaml-3.12.1/asmrun: terminfo.o
+Only in ocaml-3.12.1/asmrun: unix.c
+Only in ocaml-3.12.1/asmrun: unix.o
+Only in ocaml-3.12.1/asmrun: weak.c
+Only in ocaml-3.12.1/asmrun: weak.o
+Only in ocaml-3.12.1/boot: arg.cmi
+Only in ocaml-3.12.1/boot: array.cmi
+Only in ocaml-3.12.1/boot: arrayLabels.cmi
+Only in ocaml-3.12.1/boot: buffer.cmi
+Only in ocaml-3.12.1/boot: callback.cmi
+Only in ocaml-3.12.1/boot: camlheader
+Only in ocaml-3.12.1/boot: camlinternalLazy.cmi
+Only in ocaml-3.12.1/boot: camlinternalMod.cmi
+Only in ocaml-3.12.1/boot: camlinternalOO.cmi
+Only in ocaml-3.12.1/boot: char.cmi
+Only in ocaml-3.12.1/boot: complex.cmi
+Only in ocaml-3.12.1/boot: digest.cmi
+Only in ocaml-3.12.1/boot: filename.cmi
+Only in ocaml-3.12.1/boot: format.cmi
+Only in ocaml-3.12.1/boot: gc.cmi
+Only in ocaml-3.12.1/boot: genlex.cmi
+Only in ocaml-3.12.1/boot: hashtbl.cmi
+Only in ocaml-3.12.1/boot: int32.cmi
+Only in ocaml-3.12.1/boot: int64.cmi
+Only in ocaml-3.12.1/boot: lazy.cmi
+Only in ocaml-3.12.1/boot: lexing.cmi
+Only in ocaml-3.12.1/boot: libcamlrun.a
+Only in ocaml-3.12.1/boot: list.cmi
+Only in ocaml-3.12.1/boot: listLabels.cmi
+Only in ocaml-3.12.1/boot: map.cmi
+Only in ocaml-3.12.1/boot: marshal.cmi
+Only in ocaml-3.12.1/boot: moreLabels.cmi
+Only in ocaml-3.12.1/boot: myocamlbuild
+Only in ocaml-3.12.1/boot: nativeint.cmi
+Only in ocaml-3.12.1/boot: obj.cmi
+Only in ocaml-3.12.1/boot: ocamlrun
+Only in ocaml-3.12.1/boot: ocamlyacc
+Only in ocaml-3.12.1/boot: oo.cmi
+Only in ocaml-3.12.1/boot: parsing.cmi
+Only in ocaml-3.12.1/boot: pervasives.cmi
+Only in ocaml-3.12.1/boot: printexc.cmi
+Only in ocaml-3.12.1/boot: printf.cmi
+Only in ocaml-3.12.1/boot: queue.cmi
+Only in ocaml-3.12.1/boot: random.cmi
+Only in ocaml-3.12.1/boot: scanf.cmi
+Only in ocaml-3.12.1/boot: set.cmi
+Only in ocaml-3.12.1/boot: sort.cmi
+Only in ocaml-3.12.1/boot: stack.cmi
+Only in ocaml-3.12.1/boot: std_exit.cmi
+Only in ocaml-3.12.1/boot: std_exit.cmo
+Only in ocaml-3.12.1/boot: stdLabels.cmi
+Only in ocaml-3.12.1/boot: stdlib.cma
+Only in ocaml-3.12.1/boot: stream.cmi
+Only in ocaml-3.12.1/boot: string.cmi
+Only in ocaml-3.12.1/boot: stringLabels.cmi
+Only in ocaml-3.12.1/boot: sys.cmi
+Only in ocaml-3.12.1/boot: weak.cmi
+diff -r -C 2 ocaml-3.12.1.orig/build/boot-c-parts.sh ocaml-3.12.1/build/boot-c-parts.sh
+*** ocaml-3.12.1.orig/build/boot-c-parts.sh	2010-05-20 11:44:25.000000000 +0200
+--- ocaml-3.12.1/build/boot-c-parts.sh	2013-08-07 15:40:07.424291615 +0200
+***************
+*** 23,32 ****
+  mkdir -p _build/boot
+  
+  # Create a bunch of symlinks (or copies) to _build/boot
+  (cd _build/boot &&
+! $LINK ../../byterun/ocamlrun$EXE \
+        ../../byterun/libcamlrun.$A \
+        ../../asmrun/libasmrun.$A \
+!       ../../yacc/ocamlyacc$EXE \
+        ../../boot/ocamlc \
+        ../../boot/ocamllex \
+--- 23,35 ----
+  mkdir -p _build/boot
+  
++ OCAMLHOST=$HOME/toolchain/ocaml-3.12.1.host
++ 
++ 
+  # Create a bunch of symlinks (or copies) to _build/boot
+  (cd _build/boot &&
+! $LINK $OCAMLHOST/byterun/ocamlrun$EXE \
+        ../../byterun/libcamlrun.$A \
+        ../../asmrun/libasmrun.$A \
+!       $OCAMLHOST/yacc/ocamlyacc$EXE \
+        ../../boot/ocamlc \
+        ../../boot/ocamllex \
+Only in ocaml-3.12.1/build: boot-c-parts.sh~
+diff -r -C 2 ocaml-3.12.1.orig/build/boot.sh ocaml-3.12.1/build/boot.sh
+*** ocaml-3.12.1.orig/build/boot.sh	2011-02-21 16:09:49.000000000 +0100
+--- ocaml-3.12.1/build/boot.sh	2013-08-07 15:45:43.056299611 +0200
+***************
+*** 4,12 ****
+  set -ex
+  TAG_LINE='true: -use_stdlib'
+! ./boot/ocamlrun boot/myocamlbuild.boot \
+    -tag-line "$TAG_LINE" \
+    boot/stdlib.cma boot/std_exit.cmo
+  
+! boot/ocamlrun boot/myocamlbuild.boot \
+    -tag-line "$TAG_LINE" -log _boot_log1 \
+    ocamlbuild/ocamlbuildlightlib.cma ocamlbuild/ocamlbuildlight.byte
+--- 4,15 ----
+  set -ex
+  TAG_LINE='true: -use_stdlib'
+! 
+! OCAMLHOST=$HOME/toolchain/ocaml-3.12.1.host
+! 
+! $OCAMLHOST/boot/ocamlrun boot/myocamlbuild.boot \
+    -tag-line "$TAG_LINE" \
+    boot/stdlib.cma boot/std_exit.cmo
+  
+! $OCAMLHOST/boot/ocamlrun boot/myocamlbuild.boot \
+    -tag-line "$TAG_LINE" -log _boot_log1 \
+    ocamlbuild/ocamlbuildlightlib.cma ocamlbuild/ocamlbuildlight.byte
+***************
+*** 14,23 ****
+  rm -f _build/myocamlbuild
+  
+! boot/ocamlrun boot/myocamlbuild.boot \
+    -just-plugin -install-lib-dir _build/ocamlbuild -byte-plugin
+  
+  cp _build/myocamlbuild boot/myocamlbuild
+  
+! ./boot/ocamlrun boot/myocamlbuild \
+    -tag-line "$TAG_LINE" \
+    $@ -log _boot_log2 boot/camlheader ocamlc
+--- 17,26 ----
+  rm -f _build/myocamlbuild
+  
+! $OCAMLHOST/boot/ocamlrun boot/myocamlbuild.boot \
+    -just-plugin -install-lib-dir _build/ocamlbuild -byte-plugin
+  
+  cp _build/myocamlbuild boot/myocamlbuild
+  
+! $OCAMLHOST/boot/ocamlrun boot/myocamlbuild \
+    -tag-line "$TAG_LINE" \
+    $@ -log _boot_log2 boot/camlheader ocamlc
+Only in ocaml-3.12.1/build: boot.sh~
+diff -r -C 2 ocaml-3.12.1.orig/build/mixed-boot.sh ocaml-3.12.1/build/mixed-boot.sh
+*** ocaml-3.12.1.orig/build/mixed-boot.sh	2010-05-20 11:44:25.000000000 +0200
+--- ocaml-3.12.1/build/mixed-boot.sh	2013-08-07 15:45:00.288298594 +0200
+***************
+*** 13,16 ****
+--- 13,18 ----
+  #########################################################################
+  
++ OCAMLHOST=$HOME/toolchain/ocaml-3.12.1.host
++ 
+  set -ex
+  cd `dirname $0`/..
+***************
+*** 18,21 ****
+--- 20,25 ----
+  mkdir -p _build
+  cp -rf boot _build/
++ rm -f _build/boot/ocamlrun
++ cp $OCAMLHOST/boot/ocamlrun _build/boot/ocamlrun
+  ./build/mkconfig.sh
+  ./build/mkmyocamlbuild_config.sh
+Only in ocaml-3.12.1/build: mixed-boot.sh~
+Only in ocaml-3.12.1/build: ocamlbuild_mixed_mode
+diff -r -C 2 ocaml-3.12.1.orig/build/targets.sh ocaml-3.12.1/build/targets.sh
+*** ocaml-3.12.1.orig/build/targets.sh	2010-11-25 14:57:43.000000000 +0100
+--- ocaml-3.12.1/build/targets.sh	2013-08-07 15:47:15.232301811 +0200
+***************
+*** 13,16 ****
+--- 13,18 ----
+  # $Id: targets.sh 10856 2010-11-25 13:57:43Z xclerc $
+  
++ OCAMLHOST=$HOME/toolchain/ocaml-3.12.1.host
++ 
+  . config/config.sh
+  . build/otherlibs-targets.sh
+***************
+*** 61,64 ****
+    OCAMLBUILD=./boot/myocamlbuild.native
+  else
+!   OCAMLBUILD="./boot/ocamlrun boot/myocamlbuild"
+  fi
+--- 63,66 ----
+    OCAMLBUILD=./boot/myocamlbuild.native
+  else
+!   OCAMLBUILD="$OCAMLHOST/boot/ocamlrun boot/myocamlbuild"
+  fi
+Only in ocaml-3.12.1/build: targets.sh~
+Only in ocaml-3.12.1: _build
+Only in ocaml-3.12.1/bytecomp: bytegen.cmi
+Only in ocaml-3.12.1/bytecomp: bytegen.cmo
+Only in ocaml-3.12.1/bytecomp: bytelibrarian.cmi
+Only in ocaml-3.12.1/bytecomp: bytelibrarian.cmo
+Only in ocaml-3.12.1/bytecomp: bytelink.cmi
+Only in ocaml-3.12.1/bytecomp: bytelink.cmo
+Only in ocaml-3.12.1/bytecomp: bytepackager.cmi
+Only in ocaml-3.12.1/bytecomp: bytepackager.cmo
+Only in ocaml-3.12.1/bytecomp: bytesections.cmi
+Only in ocaml-3.12.1/bytecomp: bytesections.cmo
+Only in ocaml-3.12.1/bytecomp: cmo_format.cmi
+Only in ocaml-3.12.1/bytecomp: dll.cmi
+Only in ocaml-3.12.1/bytecomp: dll.cmo
+Only in ocaml-3.12.1/bytecomp: emitcode.cmi
+Only in ocaml-3.12.1/bytecomp: emitcode.cmo
+Only in ocaml-3.12.1/bytecomp: instruct.cmi
+Only in ocaml-3.12.1/bytecomp: instruct.cmo
+Only in ocaml-3.12.1/bytecomp: lambda.cmi
+Only in ocaml-3.12.1/bytecomp: lambda.cmo
+Only in ocaml-3.12.1/bytecomp: matching.cmi
+Only in ocaml-3.12.1/bytecomp: matching.cmo
+Only in ocaml-3.12.1/bytecomp: meta.cmi
+Only in ocaml-3.12.1/bytecomp: meta.cmo
+Only in ocaml-3.12.1/bytecomp: opcodes.cmi
+Only in ocaml-3.12.1/bytecomp: opcodes.cmo
+Only in ocaml-3.12.1/bytecomp: opcodes.ml
+Only in ocaml-3.12.1/bytecomp: printinstr.cmi
+Only in ocaml-3.12.1/bytecomp: printinstr.cmo
+Only in ocaml-3.12.1/bytecomp: printlambda.cmi
+Only in ocaml-3.12.1/bytecomp: printlambda.cmo
+Only in ocaml-3.12.1/bytecomp: runtimedef.cmi
+Only in ocaml-3.12.1/bytecomp: runtimedef.cmo
+Only in ocaml-3.12.1/bytecomp: runtimedef.ml
+Only in ocaml-3.12.1/bytecomp: simplif.cmi
+Only in ocaml-3.12.1/bytecomp: simplif.cmo
+Only in ocaml-3.12.1/bytecomp: switch.cmi
+Only in ocaml-3.12.1/bytecomp: switch.cmo
+Only in ocaml-3.12.1/bytecomp: symtable.cmi
+Only in ocaml-3.12.1/bytecomp: symtable.cmo
+Only in ocaml-3.12.1/bytecomp: translclass.cmi
+Only in ocaml-3.12.1/bytecomp: translclass.cmo
+Only in ocaml-3.12.1/bytecomp: translcore.cmi
+Only in ocaml-3.12.1/bytecomp: translcore.cmo
+Only in ocaml-3.12.1/bytecomp: translmod.cmi
+Only in ocaml-3.12.1/bytecomp: translmod.cmo
+Only in ocaml-3.12.1/bytecomp: translobj.cmi
+Only in ocaml-3.12.1/bytecomp: translobj.cmo
+Only in ocaml-3.12.1/bytecomp: typeopt.cmi
+Only in ocaml-3.12.1/bytecomp: typeopt.cmo
+Only in ocaml-3.12.1/byterun: alloc.o
+Only in ocaml-3.12.1/byterun: alloc.pic.o
+Only in ocaml-3.12.1/byterun: array.o
+Only in ocaml-3.12.1/byterun: array.pic.o
+Only in ocaml-3.12.1/byterun: backtrace.o
+Only in ocaml-3.12.1/byterun: backtrace.pic.o
+Only in ocaml-3.12.1/byterun: callback.o
+Only in ocaml-3.12.1/byterun: callback.pic.o
+Only in ocaml-3.12.1/byterun: compact.o
+Only in ocaml-3.12.1/byterun: compact.pic.o
+Only in ocaml-3.12.1/byterun: compare.o
+Only in ocaml-3.12.1/byterun: compare.pic.o
+Only in ocaml-3.12.1/byterun: custom.o
+Only in ocaml-3.12.1/byterun: custom.pic.o
+Only in ocaml-3.12.1/byterun: debugger.o
+Only in ocaml-3.12.1/byterun: debugger.pic.o
+Only in ocaml-3.12.1/byterun: dynlink.o
+Only in ocaml-3.12.1/byterun: dynlink.pic.o
+Only in ocaml-3.12.1/byterun: extern.o
+Only in ocaml-3.12.1/byterun: extern.pic.o
+Only in ocaml-3.12.1/byterun: fail.o
+Only in ocaml-3.12.1/byterun: fail.pic.o
+Only in ocaml-3.12.1/byterun: finalise.o
+Only in ocaml-3.12.1/byterun: finalise.pic.o
+Only in ocaml-3.12.1/byterun: fix_code.o
+Only in ocaml-3.12.1/byterun: fix_code.pic.o
+Only in ocaml-3.12.1/byterun: floats.o
+Only in ocaml-3.12.1/byterun: floats.pic.o
+Only in ocaml-3.12.1/byterun: freelist.o
+Only in ocaml-3.12.1/byterun: freelist.pic.o
+Only in ocaml-3.12.1/byterun: gc_ctrl.o
+Only in ocaml-3.12.1/byterun: gc_ctrl.pic.o
+Only in ocaml-3.12.1/byterun: globroots.o
+Only in ocaml-3.12.1/byterun: globroots.pic.o
+Only in ocaml-3.12.1/byterun: hash.o
+Only in ocaml-3.12.1/byterun: hash.pic.o
+Only in ocaml-3.12.1/byterun: intern.o
+Only in ocaml-3.12.1/byterun: intern.pic.o
+Only in ocaml-3.12.1/byterun: interp.o
+Only in ocaml-3.12.1/byterun: interp.pic.o
+Only in ocaml-3.12.1/byterun: ints.i
+Only in ocaml-3.12.1/byterun: ints.o
+Only in ocaml-3.12.1/byterun: ints.pic.o
+Only in ocaml-3.12.1/byterun: ints.s
+Only in ocaml-3.12.1/byterun: io.o
+Only in ocaml-3.12.1/byterun: io.pic.o
+Only in ocaml-3.12.1/byterun: jumptbl.h
+Only in ocaml-3.12.1/byterun: ld.conf
+Only in ocaml-3.12.1/byterun: lexing.o
+Only in ocaml-3.12.1/byterun: lexing.pic.o
+Only in ocaml-3.12.1/byterun: libcamlrun.a
+Only in ocaml-3.12.1/byterun: libcamlrun_shared.so
+Only in ocaml-3.12.1/byterun: log
+Only in ocaml-3.12.1/byterun: main.o
+Only in ocaml-3.12.1/byterun: main.pic.o
+Only in ocaml-3.12.1/byterun: major_gc.o
+Only in ocaml-3.12.1/byterun: major_gc.pic.o
+diff -r -C 2 ocaml-3.12.1.orig/byterun/Makefile ocaml-3.12.1/byterun/Makefile
+*** ocaml-3.12.1.orig/byterun/Makefile	2010-07-28 15:19:44.000000000 +0200
+--- ocaml-3.12.1/byterun/Makefile	2013-08-07 16:32:51.404367008 +0200
+***************
+*** 37,45 ****
+  
+  libcamlrun.a: $(OBJS)
+! 	ar rc libcamlrun.a $(OBJS)
+  	$(RANLIB) libcamlrun.a
+  
+  libcamlrund.a: $(DOBJS)
+! 	ar rc libcamlrund.a $(DOBJS)
+  	$(RANLIB) libcamlrund.a
+  
+--- 37,45 ----
+  
+  libcamlrun.a: $(OBJS)
+! 	$(ARCMD) rc libcamlrun.a $(OBJS)
+  	$(RANLIB) libcamlrun.a
+  
+  libcamlrund.a: $(DOBJS)
+! 	$(ARCMD) rc libcamlrund.a $(DOBJS)
+  	$(RANLIB) libcamlrund.a
+  
+Only in ocaml-3.12.1/byterun: Makefile~
+Only in ocaml-3.12.1/byterun: md5.o
+Only in ocaml-3.12.1/byterun: md5.pic.o
+Only in ocaml-3.12.1/byterun: memory.o
+Only in ocaml-3.12.1/byterun: memory.pic.o
+Only in ocaml-3.12.1/byterun: meta.o
+Only in ocaml-3.12.1/byterun: meta.pic.o
+Only in ocaml-3.12.1/byterun: minor_gc.o
+Only in ocaml-3.12.1/byterun: minor_gc.pic.o
+Only in ocaml-3.12.1/byterun: misc.o
+Only in ocaml-3.12.1/byterun: misc.pic.o
+Only in ocaml-3.12.1/byterun: obj.o
+Only in ocaml-3.12.1/byterun: obj.pic.o
+Only in ocaml-3.12.1/byterun: ocamlrun
+Only in ocaml-3.12.1/byterun: parsing.o
+Only in ocaml-3.12.1/byterun: parsing.pic.o
+Only in ocaml-3.12.1/byterun: primitives
+Only in ocaml-3.12.1/byterun: prims.c
+Only in ocaml-3.12.1/byterun: prims.o
+Only in ocaml-3.12.1/byterun: printexc.o
+Only in ocaml-3.12.1/byterun: printexc.pic.o
+Only in ocaml-3.12.1/byterun: roots.o
+Only in ocaml-3.12.1/byterun: roots.pic.o
+Only in ocaml-3.12.1/byterun: signals_byt.o
+Only in ocaml-3.12.1/byterun: signals_byt.pic.o
+Only in ocaml-3.12.1/byterun: signals.o
+Only in ocaml-3.12.1/byterun: signals.pic.o
+Only in ocaml-3.12.1/byterun: stacks.o
+Only in ocaml-3.12.1/byterun: stacks.pic.o
+Only in ocaml-3.12.1/byterun: startup.o
+Only in ocaml-3.12.1/byterun: startup.pic.o
+Only in ocaml-3.12.1/byterun: str.o
+Only in ocaml-3.12.1/byterun: str.pic.o
+Only in ocaml-3.12.1/byterun: sys.o
+Only in ocaml-3.12.1/byterun: sys.pic.o
+Only in ocaml-3.12.1/byterun: terminfo.o
+Only in ocaml-3.12.1/byterun: terminfo.pic.o
+Only in ocaml-3.12.1/byterun: unix.o
+Only in ocaml-3.12.1/byterun: unix.pic.o
+Only in ocaml-3.12.1/byterun: version.h
+Only in ocaml-3.12.1/byterun: weak.o
+Only in ocaml-3.12.1/byterun: weak.pic.o
+Only in ocaml-3.12.1/config/auto-aux: cross_compile_conf.arm-apple-darwin10
+Only in ocaml-3.12.1/config/auto-aux: cross_compile_conf.arm-apple-darwin11
+diff -r -C 2 ocaml-3.12.1.orig/config/auto-aux/runtest ocaml-3.12.1/config/auto-aux/runtest
+*** ocaml-3.12.1.orig/config/auto-aux/runtest	2001-09-06 10:52:32.000000000 +0200
+--- ocaml-3.12.1/config/auto-aux/runtest	2013-08-07 14:43:28.392210621 +0200
+***************
+*** 1,3 ****
+--- 1,9 ----
+  #!/bin/sh
++ 
++ if test "$cross_compile" = yes; then
++ exec sh ./cross_compile_conf.$host_type $* 
++ exit 0
++ fi
++ 
+  if test "$verbose" = yes; then
+  echo "runtest: $cc -o tst $* $cclibs" >&2
+Only in ocaml-3.12.1/config: config.sh
+Only in ocaml-3.12.1/config: Makefile
+Only in ocaml-3.12.1/config: Makefile.good
+Only in ocaml-3.12.1/config: m.h
+Only in ocaml-3.12.1/config: s.h
+diff -r -C 2 ocaml-3.12.1.orig/configure ocaml-3.12.1/configure
+*** ocaml-3.12.1.orig/configure	2011-07-04 23:15:01.000000000 +0200
+--- ocaml-3.12.1/configure	2013-08-07 16:44:08.264383139 +0200
+***************
+*** 43,46 ****
+--- 43,47 ----
+  gcc_warnings="-Wall"
+  partialld="ld -r"
++ cross_compile=no
+  
+  # Try to turn internationalization off, can cause config.guess to malfunction!
+***************
+*** 170,178 ****
+  # Determine the system type
+  
+  if test "$host_type" = "unknown"; then
+!   if host_type=`../gnu/config.guess`; then :; else
+!     echo "Cannot guess host type"
+!     echo "You must specify one with the -host option"
+!     exit 2
+    fi
+  fi
+--- 171,190 ----
+  # Determine the system type
+  
++ if guessed_host_type=`../gnu/config.guess`; then :; else
++   echo "Cannot guess host type"
++   echo "You must specify one with the -host option"
++   exit 2
++ fi
++ 
++ echo $host_type
++ echo $guessed_host_type
++ 
+  if test "$host_type" = "unknown"; then
+!   host_type=$guessed_host_type
+! else
+!   if test "$host_type" = "$guessed_host_type"; then
+!     cross_compile=no
+!   else
+!     cross_compile=yes
+    fi
+  fi
+***************
+*** 333,337 ****
+  
+  cc="$bytecc -O $bytecclinkopts"
+! export cc cclibs verbose
+  
+  # Check C compiler
+--- 345,349 ----
+  
+  cc="$bytecc -O $bytecclinkopts"
+! export cc cclibs verbose cross_compile host_type
+  
+  # Check C compiler
+***************
+*** 693,696 ****
+--- 705,709 ----
+    arm*-*-linux*)                arch=arm; system=linux;;
+    arm*-*-gnu*)                  arch=arm; system=gnu;;
++   arm*-*-darwin*)               arch=arm; system=macosx;;
+    ia64-*-linux*)                arch=ia64; system=linux;;
+    ia64-*-gnu*)                  arch=ia64; system=gnu;;
+***************
+*** 807,819 ****
+  # Where is ranlib?
+  
+! if sh ./searchpath ranlib; then
+!   echo "ranlib found"
+!   echo "RANLIB=ranlib" >> Makefile
+!   echo "RANLIBCMD=ranlib" >> Makefile
+  else
+!   echo "ranlib not used"
+!   echo "RANLIB=ar rs" >> Makefile
+!   echo "RANLIBCMD=" >> Makefile
+! fi
+  
+  # Do #! scripts work?
+--- 820,843 ----
+  # Where is ranlib?
+  
+! 
+! if test "$host_type" = "$guessed_host_type"; then
+!   if sh ./searchpath ranlib; then
+!     echo "ranlib found"
+!     RANLIBCMD=ranlib
+!     ARCMD=ar
+!   else
+!     echo "ranlib not used"
+!     RANLIBCMD="ar rs"
+!     ARCMD=ar
+!   fi
+  else
+!     RANLIBCMD="$host_type-ranlib"
+!     ARCMD="$host_type-ar"
+!     crosslibs="-lgcc_s.1"
+! fi
+! echo "RANLIB=$RANLIBCMD" >> Makefile
+! echo "RANLIBCMD=$RANLIBCMD" >> Makefile
+! echo "ARCMD=$ARCMD" >> Makefile
+! 
+  
+  # Do #! scripts work?
+***************
+*** 1608,1612 ****
+  echo "BYTECCCOMPOPTS=$bytecccompopts" >> Makefile
+  echo "BYTECCLINKOPTS=$bytecclinkopts" >> Makefile
+! echo "BYTECCLIBS=$cclibs $dllib $curseslibs $pthread_link" >> Makefile
+  echo "BYTECCRPATH=$byteccrpath" >> Makefile
+  echo "EXE=$exe" >> Makefile
+--- 1632,1636 ----
+  echo "BYTECCCOMPOPTS=$bytecccompopts" >> Makefile
+  echo "BYTECCLINKOPTS=$bytecclinkopts" >> Makefile
+! echo "BYTECCLIBS=$cclibs $dllib $curseslibs $pthread_link $crosslibs" >> Makefile
+  echo "BYTECCRPATH=$byteccrpath" >> Makefile
+  echo "EXE=$exe" >> Makefile
+***************
+*** 1620,1625 ****
+  
+  ### How to build a static library
+! MKLIB=ar rc \$(1) \$(2); ranlib \$(1)
+! #ml let mklib out files opts = Printf.sprintf "ar rc %s %s %s; ranlib %s" out opts files out;;
+  EOF
+  echo "ARCH=$arch" >> Makefile
+--- 1644,1649 ----
+  
+  ### How to build a static library
+! MKLIB=$ARCMD rc \$(1) \$(2); $RANLIBCMD \$(1)
+! #ml let mklib out files opts = Printf.sprintf "$ARCMD rc %s %s %s; $RANLIBCMD %s" out opts files out;;
+  EOF
+  echo "ARCH=$arch" >> Makefile
+***************
+*** 1661,1664 ****
+--- 1685,1689 ----
+  echo "MKDLL=$mksharedlib" >> Makefile
+  echo "MKMAINDLL=$mkmaindll" >> Makefile
++ echo "OCAMLHOST=$OCAMLHOST" >> Makefile
+  
+  rm -f tst hasgot.c
+Only in ocaml-3.12.1: configure.orig
+Only in ocaml-3.12.1/debugger: breakpoints.cmi
+Only in ocaml-3.12.1/debugger: breakpoints.cmo
+Only in ocaml-3.12.1/debugger: checkpoints.cmi
+Only in ocaml-3.12.1/debugger: checkpoints.cmo
+Only in ocaml-3.12.1/debugger: command_line.cmi
+Only in ocaml-3.12.1/debugger: command_line.cmo
+Only in ocaml-3.12.1/debugger: debugcom.cmi
+Only in ocaml-3.12.1/debugger: debugcom.cmo
+Only in ocaml-3.12.1/debugger: debugger_config.cmi
+Only in ocaml-3.12.1/debugger: debugger_config.cmo
+Only in ocaml-3.12.1/debugger: dynlink.cmi
+Only in ocaml-3.12.1/debugger: dynlink.cmo
+Only in ocaml-3.12.1/debugger: dynlink.ml
+Only in ocaml-3.12.1/debugger: dynlink.mli
+Only in ocaml-3.12.1/debugger: envaux.cmi
+Only in ocaml-3.12.1/debugger: envaux.cmo
+Only in ocaml-3.12.1/debugger: eval.cmi
+Only in ocaml-3.12.1/debugger: eval.cmo
+Only in ocaml-3.12.1/debugger: events.cmi
+Only in ocaml-3.12.1/debugger: events.cmo
+Only in ocaml-3.12.1/debugger: exec.cmi
+Only in ocaml-3.12.1/debugger: exec.cmo
+Only in ocaml-3.12.1/debugger: frames.cmi
+Only in ocaml-3.12.1/debugger: frames.cmo
+Only in ocaml-3.12.1/debugger: history.cmi
+Only in ocaml-3.12.1/debugger: history.cmo
+Only in ocaml-3.12.1/debugger: input_handling.cmi
+Only in ocaml-3.12.1/debugger: input_handling.cmo
+Only in ocaml-3.12.1/debugger: int64ops.cmi
+Only in ocaml-3.12.1/debugger: int64ops.cmo
+Only in ocaml-3.12.1/debugger: lexer.cmi
+Only in ocaml-3.12.1/debugger: lexer.cmo
+Only in ocaml-3.12.1/debugger: lexer.ml
+Only in ocaml-3.12.1/debugger: loadprinter.cmi
+Only in ocaml-3.12.1/debugger: loadprinter.cmo
+Only in ocaml-3.12.1/debugger: main.cmi
+Only in ocaml-3.12.1/debugger: main.cmo
+diff -r -C 2 ocaml-3.12.1.orig/debugger/Makefile ocaml-3.12.1/debugger/Makefile
+*** ocaml-3.12.1.orig/debugger/Makefile	2008-07-29 10:31:41.000000000 +0200
+--- ocaml-3.12.1/debugger/Makefile	2013-08-07 15:59:31.528319355 +0200
+***************
+*** 12,16 ****
+  
+  # $Id: Makefile 8955 2008-07-29 08:31:41Z xleroy $
+  
+- UNIXDIR=../otherlibs/unix
+  include Makefile.shared
+--- 12,17 ----
+  
+  # $Id: Makefile 8955 2008-07-29 08:31:41Z xleroy $
++ include ../config/Makefile
++ UNIXDIR=$(OCAMLHOST)/otherlibs/unix
+  
+  include Makefile.shared
+Only in ocaml-3.12.1/debugger: Makefile~
+diff -r -C 2 ocaml-3.12.1.orig/debugger/Makefile.shared ocaml-3.12.1/debugger/Makefile.shared
+*** ocaml-3.12.1.orig/debugger/Makefile.shared	2010-05-17 17:49:53.000000000 +0200
+--- ocaml-3.12.1/debugger/Makefile.shared	2013-08-07 15:58:00.056317174 +0200
+***************
+*** 18,25 ****
+  COMPFLAGS=-warn-error A $(INCLUDES)
+  LINKFLAGS=-linkall -I $(UNIXDIR)
+! CAMLYACC=../boot/ocamlyacc
+  YACCFLAGS=
+! CAMLLEX=../boot/ocamlrun ../boot/ocamllex
+! CAMLDEP=../boot/ocamlrun ../tools/ocamldep
+  DEPFLAGS=$(INCLUDES)
+  
+--- 18,25 ----
+  COMPFLAGS=-warn-error A $(INCLUDES)
+  LINKFLAGS=-linkall -I $(UNIXDIR)
+! CAMLYACC=$(OCAMLHOST)/boot/ocamlyacc
+  YACCFLAGS=
+! CAMLLEX=$(OCAMLHOST)/boot/ocamlrun ../boot/ocamllex
+! CAMLDEP=$(OCAMLHOST)/boot/ocamlrun ../tools/ocamldep
+  DEPFLAGS=$(INCLUDES)
+  
+Only in ocaml-3.12.1/debugger: Makefile.shared~
+Only in ocaml-3.12.1/debugger: ocamldebug
+Only in ocaml-3.12.1/debugger: parameters.cmi
+Only in ocaml-3.12.1/debugger: parameters.cmo
+Only in ocaml-3.12.1/debugger: parser_aux.cmi
+Only in ocaml-3.12.1/debugger: parser.cmi
+Only in ocaml-3.12.1/debugger: parser.cmo
+Only in ocaml-3.12.1/debugger: parser.ml
+Only in ocaml-3.12.1/debugger: parser.mli
+Only in ocaml-3.12.1/debugger: pos.cmi
+Only in ocaml-3.12.1/debugger: pos.cmo
+Only in ocaml-3.12.1/debugger: primitives.cmi
+Only in ocaml-3.12.1/debugger: primitives.cmo
+Only in ocaml-3.12.1/debugger: printval.cmi
+Only in ocaml-3.12.1/debugger: printval.cmo
+Only in ocaml-3.12.1/debugger: program_loading.cmi
+Only in ocaml-3.12.1/debugger: program_loading.cmo
+Only in ocaml-3.12.1/debugger: program_management.cmi
+Only in ocaml-3.12.1/debugger: program_management.cmo
+Only in ocaml-3.12.1/debugger: question.cmi
+Only in ocaml-3.12.1/debugger: question.cmo
+Only in ocaml-3.12.1/debugger: show_information.cmi
+Only in ocaml-3.12.1/debugger: show_information.cmo
+Only in ocaml-3.12.1/debugger: show_source.cmi
+Only in ocaml-3.12.1/debugger: show_source.cmo
+Only in ocaml-3.12.1/debugger: source.cmi
+Only in ocaml-3.12.1/debugger: source.cmo
+Only in ocaml-3.12.1/debugger: symbols.cmi
+Only in ocaml-3.12.1/debugger: symbols.cmo
+Only in ocaml-3.12.1/debugger: time_travel.cmi
+Only in ocaml-3.12.1/debugger: time_travel.cmo
+Only in ocaml-3.12.1/debugger: trap_barrier.cmi
+Only in ocaml-3.12.1/debugger: trap_barrier.cmo
+Only in ocaml-3.12.1/debugger: unix_tools.cmi
+Only in ocaml-3.12.1/debugger: unix_tools.cmo
+Only in ocaml-3.12.1/driver: compile.cmi
+Only in ocaml-3.12.1/driver: compile.cmo
+Only in ocaml-3.12.1/driver: errors.cmi
+Only in ocaml-3.12.1/driver: errors.cmo
+Only in ocaml-3.12.1/driver: main_args.cmi
+Only in ocaml-3.12.1/driver: main_args.cmo
+Only in ocaml-3.12.1/driver: main.cmi
+Only in ocaml-3.12.1/driver: main.cmo
+Only in ocaml-3.12.1/driver: optcompile.cmi
+Only in ocaml-3.12.1/driver: optcompile.cmo
+Only in ocaml-3.12.1/driver: opterrors.cmi
+Only in ocaml-3.12.1/driver: opterrors.cmo
+Only in ocaml-3.12.1/driver: optmain.cmi
+Only in ocaml-3.12.1/driver: optmain.cmo
+Only in ocaml-3.12.1/driver: pparse.cmi
+Only in ocaml-3.12.1/driver: pparse.cmo
+Only in ocaml-3.12.1: expunge
+Only in ocaml-3.12.1/lex: common.cmi
+Only in ocaml-3.12.1/lex: common.cmo
+Only in ocaml-3.12.1/lex: compact.cmi
+Only in ocaml-3.12.1/lex: compact.cmo
+Only in ocaml-3.12.1/lex: cset.cmi
+Only in ocaml-3.12.1/lex: cset.cmo
+Only in ocaml-3.12.1/lex: lexer.cmi
+Only in ocaml-3.12.1/lex: lexer.cmo
+Only in ocaml-3.12.1/lex: lexer.ml
+Only in ocaml-3.12.1/lex: lexgen.cmi
+Only in ocaml-3.12.1/lex: lexgen.cmo
+Only in ocaml-3.12.1/lex: main.cmi
+Only in ocaml-3.12.1/lex: main.cmo
+diff -r -C 2 ocaml-3.12.1.orig/lex/Makefile ocaml-3.12.1/lex/Makefile
+*** ocaml-3.12.1.orig/lex/Makefile	2009-12-09 10:52:47.000000000 +0100
+--- ocaml-3.12.1/lex/Makefile	2013-08-07 15:31:44.196279622 +0200
+***************
+*** 13,24 ****
+  # $Id: Makefile 9467 2009-12-09 09:52:47Z weis $
+  
+  # The lexer generator
+! CAMLC=../boot/ocamlrun ../boot/ocamlc -strict-sequence -nostdlib -I ../boot
+! CAMLOPT=../boot/ocamlrun ../ocamlopt -nostdlib -I ../stdlib
+  COMPFLAGS=-warn-error A
+! CAMLYACC=../boot/ocamlyacc
+  YACCFLAGS=-v
+! CAMLLEX=../boot/ocamlrun ../boot/ocamllex
+! CAMLDEP=../boot/ocamlrun ../tools/ocamldep
+  
+  
+--- 13,26 ----
+  # $Id: Makefile 9467 2009-12-09 09:52:47Z weis $
+  
++ OCAMLHOST=$(HOME)/toolchain/ocaml-3.12.1.host
++ 
+  # The lexer generator
+! CAMLC=$(OCAMLHOST)/boot/ocamlrun ../boot/ocamlc -strict-sequence -nostdlib -I ../boot
+! CAMLOPT=$(OCAMLHOST)/boot/ocamlrun ../ocamlopt -nostdlib -I ../stdlib
+  COMPFLAGS=-warn-error A
+! CAMLYACC=$(OCAMLHOST)/boot/ocamlyacc
+  YACCFLAGS=-v
+! CAMLLEX=$(OCAMLHOST)/boot/ocamlrun ../boot/ocamllex
+! CAMLDEP=$(OCAMLHOST)/boot/ocamlrun ../tools/ocamldep
+  
+  
+Only in ocaml-3.12.1/lex: ocamllex
+Only in ocaml-3.12.1/lex: outputbis.cmi
+Only in ocaml-3.12.1/lex: outputbis.cmo
+Only in ocaml-3.12.1/lex: output.cmi
+Only in ocaml-3.12.1/lex: output.cmo
+Only in ocaml-3.12.1/lex: parser.cmi
+Only in ocaml-3.12.1/lex: parser.cmo
+Only in ocaml-3.12.1/lex: parser.ml
+Only in ocaml-3.12.1/lex: parser.mli
+Only in ocaml-3.12.1/lex: parser.output
+Only in ocaml-3.12.1/lex: syntax.cmi
+Only in ocaml-3.12.1/lex: syntax.cmo
+Only in ocaml-3.12.1/lex: table.cmi
+Only in ocaml-3.12.1/lex: table.cmo
+diff -r -C 2 ocaml-3.12.1.orig/Makefile ocaml-3.12.1/Makefile
+*** ocaml-3.12.1.orig/Makefile	2010-06-16 03:32:26.000000000 +0200
+--- ocaml-3.12.1/Makefile	2013-08-07 16:19:49.168348370 +0200
+***************
+*** 18,32 ****
+  include stdlib/StdlibModules
+  
+! CAMLC=boot/ocamlrun boot/ocamlc -nostdlib -I boot
+! CAMLOPT=boot/ocamlrun ./ocamlopt -nostdlib -I stdlib -I otherlibs/dynlink
+  COMPFLAGS=-strict-sequence -warn-error A $(INCLUDES)
+  LINKFLAGS=
+  
+! CAMLYACC=boot/ocamlyacc
+  YACCFLAGS=-v
+! CAMLLEX=boot/ocamlrun boot/ocamllex
+! CAMLDEP=boot/ocamlrun tools/ocamldep
+  DEPFLAGS=$(INCLUDES)
+! CAMLRUN=byterun/ocamlrun
+  SHELL=/bin/sh
+  MKDIR=mkdir -p
+--- 18,34 ----
+  include stdlib/StdlibModules
+  
+! OCAMLHOST=$(HOME)/toolchain/ocaml-3.12.1.host
+! 
+! CAMLC=$(OCAMLHOST)/boot/ocamlrun boot/ocamlc -nostdlib -I boot
+! CAMLOPT=$(OCAMLHOST)/boot/ocamlrun ./ocamlopt -nostdlib -I stdlib -I otherlibs/dynlink
+  COMPFLAGS=-strict-sequence -warn-error A $(INCLUDES)
+  LINKFLAGS=
+  
+! CAMLYACC=$(OCAMLHOST)/boot/ocamlyacc
+  YACCFLAGS=-v
+! CAMLLEX=$(OCAMLHOST)/boot/ocamlrun boot/ocamllex
+! CAMLDEP=$(OCAMLHOST)/boot/ocamlrun tools/ocamldep
+  DEPFLAGS=$(INCLUDES)
+! CAMLRUN=$(OCAMLHOST)/byterun/ocamlrun
+  SHELL=/bin/sh
+  MKDIR=mkdir -p
+***************
+*** 188,194 ****
+  coldstart:
+  	cd byterun; $(MAKE) all
+! 	cp byterun/ocamlrun$(EXE) boot/ocamlrun$(EXE)
+  	cd yacc; $(MAKE) all
+! 	cp yacc/ocamlyacc$(EXE) boot/ocamlyacc$(EXE)
+  	cd stdlib; $(MAKE) COMPILER=../boot/ocamlc all
+  	cd stdlib; cp $(LIBFILES) ../boot
+--- 190,196 ----
+  coldstart:
+  	cd byterun; $(MAKE) all
+! 	cp $(OCAMLHOST)/byterun/ocamlrun$(EXE) boot/ocamlrun$(EXE)
+  	cd yacc; $(MAKE) all
+! 	cp $(OCAMLHOST)/yacc/ocamlyacc$(EXE) boot/ocamlyacc$(EXE)
+  	cd stdlib; $(MAKE) COMPILER=../boot/ocamlc all
+  	cd stdlib; cp $(LIBFILES) ../boot
+***************
+*** 328,332 ****
+  ocamlc: $(COMPOBJS)
+  	$(CAMLC) $(LINKFLAGS) -o ocamlc $(COMPOBJS)
+! 	@sed -e 's|@compiler@|$$topdir/boot/ocamlrun $$topdir/ocamlc|' \
+  	  driver/ocamlcomp.sh.in > ocamlcomp.sh
+  	@chmod +x ocamlcomp.sh
+--- 330,334 ----
+  ocamlc: $(COMPOBJS)
+  	$(CAMLC) $(LINKFLAGS) -o ocamlc $(COMPOBJS)
+! 	@sed -e 's|@compiler@|$(OCAMLHOST)/boot/ocamlrun $$topdir/ocamlc|' \
+  	  driver/ocamlcomp.sh.in > ocamlcomp.sh
+  	@chmod +x ocamlcomp.sh
+***************
+*** 339,343 ****
+  ocamlopt: $(OPTOBJS)
+  	$(CAMLC) $(LINKFLAGS) -o ocamlopt $(OPTOBJS)
+! 	@sed -e 's|@compiler@|$$topdir/boot/ocamlrun $$topdir/ocamlopt|' \
+  	  driver/ocamlcomp.sh.in > ocamlcompopt.sh
+  	@chmod +x ocamlcompopt.sh
+--- 341,345 ----
+  ocamlopt: $(OPTOBJS)
+  	$(CAMLC) $(LINKFLAGS) -o ocamlopt $(OPTOBJS)
+! 	@sed -e 's|@compiler@|$(OCAMLHOST)/boot/ocamlrun $$topdir/ocamlopt|' \
+  	  driver/ocamlcomp.sh.in > ocamlcompopt.sh
+  	@chmod +x ocamlcompopt.sh
+***************
+*** 383,386 ****
+--- 385,389 ----
+  	    -e 's|%%NATIVECCLIBS%%|$(NATIVECCLIBS)|' \
+  	    -e 's|%%RANLIBCMD%%|$(RANLIBCMD)|' \
++ 	    -e 's|%%ARCMD%%|$(ARCMD)|' \
+  	    -e 's|%%CC_PROFILE%%|$(CC_PROFILE)|' \
+  	    -e 's|%%ARCH%%|$(ARCH)|' \
+***************
+*** 546,550 ****
+  tools/cvt_emit: tools/cvt_emit.mll
+  	cd tools; \
+! 	$(MAKE) CAMLC="../$(CAMLRUN) ../boot/ocamlc -I ../stdlib" cvt_emit
+  
+  # The "expunge" utility
+--- 549,554 ----
+  tools/cvt_emit: tools/cvt_emit.mll
+  	cd tools; \
+! 	$(MAKE) cvt_emit
+! #	$(MAKE) CAMLC="../$(CAMLRUN) ../boot/ocamlc -I ../stdlib" cvt_emit
+  
+  # The "expunge" utility
+Only in ocaml-3.12.1: myocamlbuild_config.ml
+diff -r -C 2 ocaml-3.12.1.orig/myocamlbuild.ml ocaml-3.12.1/myocamlbuild.ml
+*** ocaml-3.12.1.orig/myocamlbuild.ml	2011-02-08 15:07:47.000000000 +0100
+--- ocaml-3.12.1/myocamlbuild.ml	2013-08-07 15:56:18.416314755 +0200
+***************
+*** 105,114 ****
+  
+  let if_mixed_dir dir =
+!   if mixed then ".."/dir else dir;;
+  
+  let unix_dir =
+    match Sys.os_type with
+    | "Win32" -> if_mixed_dir "otherlibs/win32unix"
+!   | _       -> if_mixed_dir "otherlibs/unix";;
+  
+  let threads_dir    = if_mixed_dir "otherlibs/threads";;
+--- 105,119 ----
+  
+  let if_mixed_dir dir =
+!   if mixed && Filename.is_relative dir then ".."/dir else dir;;
+  
+  let unix_dir =
+    match Sys.os_type with
+    | "Win32" -> if_mixed_dir "otherlibs/win32unix"
+!   | _       ->
+!     if_mixed_dir ( try
+!       (Sys.getenv "OCAMLHOST") ^ "/otherlibs/unix"
+!     with _ ->
+!      "otherlibs/unix"
+!     );;
+  
+  let threads_dir    = if_mixed_dir "otherlibs/threads";;
+Only in ocaml-3.12.1: ocaml
+Only in ocaml-3.12.1: ocamlc
+Only in ocaml-3.12.1: ocamlcompopt.sh
+Only in ocaml-3.12.1: ocamlcomp.sh
+diff -r -C 2 ocaml-3.12.1.orig/ocamldoc/Makefile ocaml-3.12.1/ocamldoc/Makefile
+*** ocaml-3.12.1.orig/ocamldoc/Makefile	2011-05-02 15:14:14.000000000 +0200
+--- ocaml-3.12.1/ocamldoc/Makefile	2013-08-07 16:02:18.744323337 +0200
+***************
+*** 16,25 ****
+  # Various commands and dir
+  ##########################
+! CAMLRUN=../boot/ocamlrun
+  OCAMLC   = ../ocamlcomp.sh
+  OCAMLOPT = ../ocamlcompopt.sh
+  OCAMLDEP = $(CAMLRUN) ../tools/ocamldep
+  OCAMLLEX = $(CAMLRUN) ../boot/ocamllex
+! OCAMLYACC= ../boot/ocamlyacc
+  OCAMLLIB = $(LIBDIR)
+  OCAMLBIN = $(BINDIR)
+--- 16,25 ----
+  # Various commands and dir
+  ##########################
+! CAMLRUN=$(OCAMLHOST)/boot/ocamlrun
+  OCAMLC   = ../ocamlcomp.sh
+  OCAMLOPT = ../ocamlcompopt.sh
+  OCAMLDEP = $(CAMLRUN) ../tools/ocamldep
+  OCAMLLEX = $(CAMLRUN) ../boot/ocamllex
+! OCAMLYACC= $(OCAMLHOST)/boot/ocamlyacc
+  OCAMLLIB = $(LIBDIR)
+  OCAMLBIN = $(BINDIR)
+***************
+*** 61,68 ****
+--- 61,72 ----
+  
+  INCLUDES_NODEP=	-I $(OCAMLSRCDIR)/stdlib \
++ 	-I $(OCAMLHOST)/otherlibs/str \
+  	-I $(OCAMLSRCDIR)/otherlibs/str \
+  	-I $(OCAMLSRCDIR)/otherlibs/dynlink \
++ 	-I $(OCAMLHOST)/otherlibs/unix \
+  	-I $(OCAMLSRCDIR)/otherlibs/unix \
++ 	-I $(OCAMLHOST)/otherlibs/num \
+  	-I $(OCAMLSRCDIR)/otherlibs/num \
++ 	-I $(OCAMLHOST)/otherlibs/graph \
+  	-I $(OCAMLSRCDIR)/otherlibs/graph
+  
+Only in ocaml-3.12.1/ocamldoc: ocamldoc
+Only in ocaml-3.12.1/ocamldoc: odoc_analyse.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_analyse.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_args.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_args.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_ast.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_ast.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_class.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_class.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_comments.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_comments.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_comments_global.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_comments_global.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_config.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_config.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_control.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_control.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_cross.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_cross.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_dag2html.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_dag2html.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_dep.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_dep.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_dot.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_dot.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_env.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_env.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_exception.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_exception.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_global.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_global.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_html.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_html.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_info.cma
+Only in ocaml-3.12.1/ocamldoc: odoc_info.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_info.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_inherit.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_inherit.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_latex.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_latex.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_latex_style.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_latex_style.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_lexer.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_lexer.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_lexer.ml
+Only in ocaml-3.12.1/ocamldoc: odoc_man.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_man.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_merge.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_merge.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_messages.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_messages.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_misc.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_misc.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_module.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_module.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_name.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_name.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_ocamlhtml.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_ocamlhtml.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_ocamlhtml.ml
+Only in ocaml-3.12.1/ocamldoc: odoc_parameter.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_parameter.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_parser.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_parser.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_parser.ml
+Only in ocaml-3.12.1/ocamldoc: odoc_parser.mli
+Only in ocaml-3.12.1/ocamldoc: odoc_parser.output
+Only in ocaml-3.12.1/ocamldoc: odoc_print.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_print.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_scan.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_scan.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_search.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_search.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_see_lexer.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_see_lexer.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_see_lexer.ml
+Only in ocaml-3.12.1/ocamldoc: odoc_sig.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_sig.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_str.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_str.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_test.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_test.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_texi.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_texi.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_text.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_text.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_text_lexer.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_text_lexer.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_text_lexer.ml
+Only in ocaml-3.12.1/ocamldoc: odoc_text_parser.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_text_parser.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_text_parser.ml
+Only in ocaml-3.12.1/ocamldoc: odoc_text_parser.mli
+Only in ocaml-3.12.1/ocamldoc: odoc_text_parser.output
+Only in ocaml-3.12.1/ocamldoc: odoc_to_text.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_to_text.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_type.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_type.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_types.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_types.cmo
+Only in ocaml-3.12.1/ocamldoc: odoc_value.cmi
+Only in ocaml-3.12.1/ocamldoc: odoc_value.cmo
+diff -r -C 2 ocaml-3.12.1.orig/ocamldoc/runocamldoc ocaml-3.12.1/ocamldoc/runocamldoc
+*** ocaml-3.12.1.orig/ocamldoc/runocamldoc	2010-05-20 11:44:25.000000000 +0200
+--- ocaml-3.12.1/ocamldoc/runocamldoc	2013-08-07 16:10:22.884334875 +0200
+***************
+*** 4,8 ****
+  case "$1" in
+    true) shift
+!         exec ../boot/ocamlrun  -I ../otherlibs/unix -I ../otherlibs/str \
+               ./ocamldoc "$@"
+          ;;
+--- 4,8 ----
+  case "$1" in
+    true) shift
+!         exec ../boot/ocamlrun  -I $OCAMLHOST/otherlibs/unix -I $OCAMLHOST/otherlibs/str \
+               ./ocamldoc "$@"
+          ;;
+Only in ocaml-3.12.1/ocamldoc: stdlib_man
+Only in ocaml-3.12.1: ocamlopt
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray.a
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray.cma
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray.cmi
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray.cmo
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray.cmx
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray.cmxa
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray.o
+Only in ocaml-3.12.1/otherlibs/bigarray: bigarray_stubs.o
+Only in ocaml-3.12.1/otherlibs/bigarray: dllbigarray.so
+Only in ocaml-3.12.1/otherlibs/bigarray: libbigarray.a
+Only in ocaml-3.12.1/otherlibs/bigarray: mmap_unix.o
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlink.a
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlinkaux.cmi
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlinkaux.cmo
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlink.cma
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlink.cmi
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlink.cmo
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlink.cmx
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlink.cmxa
+Only in ocaml-3.12.1/otherlibs/dynlink: dynlink.o
+Only in ocaml-3.12.1/otherlibs/dynlink: extract_crc
+Only in ocaml-3.12.1/otherlibs/dynlink: extract_crc.cmi
+Only in ocaml-3.12.1/otherlibs/dynlink: extract_crc.cmo
+diff -r -C 2 ocaml-3.12.1.orig/otherlibs/dynlink/Makefile ocaml-3.12.1/otherlibs/dynlink/Makefile
+*** ocaml-3.12.1.orig/otherlibs/dynlink/Makefile	2010-05-28 17:09:22.000000000 +0200
+--- ocaml-3.12.1/otherlibs/dynlink/Makefile	2013-08-07 15:35:56.564285638 +0200
+***************
+*** 16,22 ****
+  # Makefile for the dynamic link library
+  
+  include ../../config/Makefile
+  
+! CAMLC=../../boot/ocamlrun ../../ocamlc
+  CAMLOPT=../../ocamlcompopt.sh
+  INCLUDES=-I ../../utils -I ../../typing -I ../../bytecomp -I ../../asmcomp
+--- 16,24 ----
+  # Makefile for the dynamic link library
+  
++ OCAMLHOST=$(HOME)/toolchain/ocaml-3.12.1.host
++ 
+  include ../../config/Makefile
+  
+! CAMLC=$(OCAMLHOST)/boot/ocamlrun ../../ocamlc
+  CAMLOPT=../../ocamlcompopt.sh
+  INCLUDES=-I ../../utils -I ../../typing -I ../../bytecomp -I ../../asmcomp
+Only in ocaml-3.12.1/otherlibs/dynlink: Makefile~
+diff -r -C 2 ocaml-3.12.1.orig/otherlibs/Makefile.shared ocaml-3.12.1/otherlibs/Makefile.shared
+*** ocaml-3.12.1.orig/otherlibs/Makefile.shared	2008-07-15 17:31:32.000000000 +0200
+--- ocaml-3.12.1/otherlibs/Makefile.shared	2013-08-07 15:34:24.468283442 +0200
+***************
+*** 19,25 ****
+  include $(ROOTDIR)/config/Makefile
+  
+  # Compilation options
+  CC=$(BYTECC)
+! CAMLRUN=$(ROOTDIR)/boot/ocamlrun
+  COMPFLAGS=-warn-error A -g $(EXTRACAMLFLAGS)
+  MKLIB=$(CAMLRUN) $(ROOTDIR)/tools/ocamlmklib
+--- 19,27 ----
+  include $(ROOTDIR)/config/Makefile
+  
++ OCAMLHOST=$(HOME)/toolchain/ocaml-3.12.1.host
++ 
+  # Compilation options
+  CC=$(BYTECC)
+! CAMLRUN=$(OCAMLHOST)/boot/ocamlrun
+  COMPFLAGS=-warn-error A -g $(EXTRACAMLFLAGS)
+  MKLIB=$(CAMLRUN) $(ROOTDIR)/tools/ocamlmklib
+Only in ocaml-3.12.1/otherlibs: Makefile.shared~
+Only in ocaml-3.12.1/otherlibs/num: arith_flags.cmi
+Only in ocaml-3.12.1/otherlibs/num: arith_flags.cmo
+Only in ocaml-3.12.1/otherlibs/num: arith_flags.cmx
+Only in ocaml-3.12.1/otherlibs/num: arith_flags.o
+Only in ocaml-3.12.1/otherlibs/num: arith_status.cmi
+Only in ocaml-3.12.1/otherlibs/num: arith_status.cmo
+Only in ocaml-3.12.1/otherlibs/num: arith_status.cmx
+Only in ocaml-3.12.1/otherlibs/num: arith_status.o
+Only in ocaml-3.12.1/otherlibs/num: big_int.cmi
+Only in ocaml-3.12.1/otherlibs/num: big_int.cmo
+Only in ocaml-3.12.1/otherlibs/num: big_int.cmx
+Only in ocaml-3.12.1/otherlibs/num: big_int.o
+Only in ocaml-3.12.1/otherlibs/num: bng.o
+Only in ocaml-3.12.1/otherlibs/num: dllnums.so
+Only in ocaml-3.12.1/otherlibs/num: int_misc.cmi
+Only in ocaml-3.12.1/otherlibs/num: int_misc.cmo
+Only in ocaml-3.12.1/otherlibs/num: int_misc.cmx
+Only in ocaml-3.12.1/otherlibs/num: int_misc.o
+Only in ocaml-3.12.1/otherlibs/num: libnums.a
+Only in ocaml-3.12.1/otherlibs/num: nat.cmi
+Only in ocaml-3.12.1/otherlibs/num: nat.cmo
+Only in ocaml-3.12.1/otherlibs/num: nat.cmx
+Only in ocaml-3.12.1/otherlibs/num: nat.o
+Only in ocaml-3.12.1/otherlibs/num: nat_stubs.o
+Only in ocaml-3.12.1/otherlibs/num: num.cmi
+Only in ocaml-3.12.1/otherlibs/num: num.cmo
+Only in ocaml-3.12.1/otherlibs/num: num.cmx
+Only in ocaml-3.12.1/otherlibs/num: num.o
+Only in ocaml-3.12.1/otherlibs/num: nums.a
+Only in ocaml-3.12.1/otherlibs/num: nums.cma
+Only in ocaml-3.12.1/otherlibs/num: nums.cmxa
+Only in ocaml-3.12.1/otherlibs/num: ratio.cmi
+Only in ocaml-3.12.1/otherlibs/num: ratio.cmo
+Only in ocaml-3.12.1/otherlibs/num: ratio.cmx
+Only in ocaml-3.12.1/otherlibs/num: ratio.o
+Only in ocaml-3.12.1/otherlibs/str: dllcamlstr.so
+Only in ocaml-3.12.1/otherlibs/str: libcamlstr.a
+Only in ocaml-3.12.1/otherlibs/str: str.a
+Only in ocaml-3.12.1/otherlibs/str: str.cma
+Only in ocaml-3.12.1/otherlibs/str: str.cmi
+Only in ocaml-3.12.1/otherlibs/str: str.cmo
+Only in ocaml-3.12.1/otherlibs/str: str.cmx
+Only in ocaml-3.12.1/otherlibs/str: str.cmxa
+Only in ocaml-3.12.1/otherlibs/str: str.o
+Only in ocaml-3.12.1/otherlibs/str: strstubs.o
+Only in ocaml-3.12.1/otherlibs/systhreads: condition.cmi
+Only in ocaml-3.12.1/otherlibs/systhreads: condition.cmo
+Only in ocaml-3.12.1/otherlibs/systhreads: condition.cmx
+Only in ocaml-3.12.1/otherlibs/systhreads: condition.o
+Only in ocaml-3.12.1/otherlibs/systhreads: dllthreads.so
+Only in ocaml-3.12.1/otherlibs/systhreads: event.cmi
+Only in ocaml-3.12.1/otherlibs/systhreads: event.cmo
+Only in ocaml-3.12.1/otherlibs/systhreads: event.cmx
+Only in ocaml-3.12.1/otherlibs/systhreads: event.o
+Only in ocaml-3.12.1/otherlibs/systhreads: libthreads.a
+Only in ocaml-3.12.1/otherlibs/systhreads: libthreadsnat.a
+diff -r -C 2 ocaml-3.12.1.orig/otherlibs/systhreads/Makefile ocaml-3.12.1/otherlibs/systhreads/Makefile
+*** ocaml-3.12.1.orig/otherlibs/systhreads/Makefile	2010-04-27 09:55:08.000000000 +0200
+--- ocaml-3.12.1/otherlibs/systhreads/Makefile	2013-08-07 15:36:23.936286289 +0200
+***************
+*** 18,22 ****
+  CAMLC=../../ocamlcomp.sh -I ../unix
+  CAMLOPT=../../ocamlcompopt.sh -I ../unix
+! MKLIB=../../boot/ocamlrun ../../tools/ocamlmklib
+  COMPFLAGS=-warn-error A -g
+  
+--- 18,22 ----
+  CAMLC=../../ocamlcomp.sh -I ../unix
+  CAMLOPT=../../ocamlcompopt.sh -I ../unix
+! MKLIB=$(OCAMLHOST)/boot/ocamlrun ../../tools/ocamlmklib
+  COMPFLAGS=-warn-error A -g
+  
+Only in ocaml-3.12.1/otherlibs/systhreads: Makefile~
+Only in ocaml-3.12.1/otherlibs/systhreads: mutex.cmi
+Only in ocaml-3.12.1/otherlibs/systhreads: mutex.cmo
+Only in ocaml-3.12.1/otherlibs/systhreads: mutex.cmx
+Only in ocaml-3.12.1/otherlibs/systhreads: mutex.o
+Only in ocaml-3.12.1/otherlibs/systhreads: st_stubs_b.o
+Only in ocaml-3.12.1/otherlibs/systhreads: st_stubs_n.o
+Only in ocaml-3.12.1/otherlibs/systhreads: thread.cmi
+Only in ocaml-3.12.1/otherlibs/systhreads: thread.cmo
+Only in ocaml-3.12.1/otherlibs/systhreads: thread.cmx
+Only in ocaml-3.12.1/otherlibs/systhreads: thread.o
+Only in ocaml-3.12.1/otherlibs/systhreads: threads.a
+Only in ocaml-3.12.1/otherlibs/systhreads: threads.cma
+Only in ocaml-3.12.1/otherlibs/systhreads: threads.cmxa
+Only in ocaml-3.12.1/otherlibs/systhreads: threadUnix.cmi
+Only in ocaml-3.12.1/otherlibs/systhreads: threadUnix.cmo
+Only in ocaml-3.12.1/otherlibs/systhreads: threadUnix.cmx
+Only in ocaml-3.12.1/otherlibs/systhreads: threadUnix.o
+Only in ocaml-3.12.1/otherlibs/threads: condition.cmi
+Only in ocaml-3.12.1/otherlibs/threads: condition.cmo
+Only in ocaml-3.12.1/otherlibs/threads: dllvmthreads.so
+Only in ocaml-3.12.1/otherlibs/threads: event.cmi
+Only in ocaml-3.12.1/otherlibs/threads: event.cmo
+Only in ocaml-3.12.1/otherlibs/threads: libvmthreads.a
+diff -r -C 2 ocaml-3.12.1.orig/otherlibs/threads/Makefile ocaml-3.12.1/otherlibs/threads/Makefile
+*** ocaml-3.12.1.orig/otherlibs/threads/Makefile	2008-12-03 19:09:09.000000000 +0100
+--- ocaml-3.12.1/otherlibs/threads/Makefile	2013-08-07 15:37:12.308287443 +0200
+***************
+*** 19,23 ****
+  CFLAGS=-I../../byterun -O $(BYTECCCOMPOPTS) $(SHAREDCCCOMPOPTS) -g
+  CAMLC=../../ocamlcomp.sh -I ../unix
+! MKLIB=../../boot/ocamlrun ../../tools/ocamlmklib
+  COMPFLAGS=-warn-error A
+  
+--- 19,23 ----
+  CFLAGS=-I../../byterun -O $(BYTECCCOMPOPTS) $(SHAREDCCCOMPOPTS) -g
+  CAMLC=../../ocamlcomp.sh -I ../unix
+! MKLIB=$(OCAMLHOST)/boot/ocamlrun ../../tools/ocamlmklib
+  COMPFLAGS=-warn-error A
+  
+Only in ocaml-3.12.1/otherlibs/threads: Makefile~
+Only in ocaml-3.12.1/otherlibs/threads: marshal.cmi
+Only in ocaml-3.12.1/otherlibs/threads: marshal.cmo
+Only in ocaml-3.12.1/otherlibs/threads: marshal.mli
+Only in ocaml-3.12.1/otherlibs/threads: mutex.cmi
+Only in ocaml-3.12.1/otherlibs/threads: mutex.cmo
+Only in ocaml-3.12.1/otherlibs/threads: pervasives.cmi
+Only in ocaml-3.12.1/otherlibs/threads: pervasives.cmo
+Only in ocaml-3.12.1/otherlibs/threads: pervasives.mli
+Only in ocaml-3.12.1/otherlibs/threads: scheduler.o
+Only in ocaml-3.12.1/otherlibs/threads: stdlib.cma
+Only in ocaml-3.12.1/otherlibs/threads: thread.cmi
+Only in ocaml-3.12.1/otherlibs/threads: thread.cmo
+Only in ocaml-3.12.1/otherlibs/threads: threads.cma
+Only in ocaml-3.12.1/otherlibs/threads: threadUnix.cmi
+Only in ocaml-3.12.1/otherlibs/threads: threadUnix.cmo
+Only in ocaml-3.12.1/otherlibs/threads: unix.cma
+Only in ocaml-3.12.1/otherlibs/threads: unix.cmi
+Only in ocaml-3.12.1/otherlibs/threads: unix.cmo
+Only in ocaml-3.12.1/otherlibs/threads: unix.mli
+Only in ocaml-3.12.1/otherlibs/unix: accept.o
+Only in ocaml-3.12.1/otherlibs/unix: access.o
+Only in ocaml-3.12.1/otherlibs/unix: addrofstr.o
+Only in ocaml-3.12.1/otherlibs/unix: alarm.o
+Only in ocaml-3.12.1/otherlibs/unix: bind.o
+Only in ocaml-3.12.1/otherlibs/unix: chdir.o
+Only in ocaml-3.12.1/otherlibs/unix: chmod.o
+Only in ocaml-3.12.1/otherlibs/unix: chown.o
+Only in ocaml-3.12.1/otherlibs/unix: chroot.o
+Only in ocaml-3.12.1/otherlibs/unix: closedir.o
+Only in ocaml-3.12.1/otherlibs/unix: close.o
+Only in ocaml-3.12.1/otherlibs/unix: connect.o
+Only in ocaml-3.12.1/otherlibs/unix: cst2constr.o
+Only in ocaml-3.12.1/otherlibs/unix: cstringv.o
+Only in ocaml-3.12.1/otherlibs/unix: dllunix.so
+Only in ocaml-3.12.1/otherlibs/unix: dup2.o
+Only in ocaml-3.12.1/otherlibs/unix: dup.o
+Only in ocaml-3.12.1/otherlibs/unix: envir.o
+Only in ocaml-3.12.1/otherlibs/unix: errmsg.o
+Only in ocaml-3.12.1/otherlibs/unix: execve.o
+Only in ocaml-3.12.1/otherlibs/unix: execv.o
+Only in ocaml-3.12.1/otherlibs/unix: execvp.o
+Only in ocaml-3.12.1/otherlibs/unix: exit.o
+Only in ocaml-3.12.1/otherlibs/unix: fchmod.o
+Only in ocaml-3.12.1/otherlibs/unix: fchown.o
+Only in ocaml-3.12.1/otherlibs/unix: fcntl.o
+Only in ocaml-3.12.1/otherlibs/unix: fork.o
+Only in ocaml-3.12.1/otherlibs/unix: ftruncate.o
+Only in ocaml-3.12.1/otherlibs/unix: getaddrinfo.o
+Only in ocaml-3.12.1/otherlibs/unix: getcwd.o
+Only in ocaml-3.12.1/otherlibs/unix: getegid.o
+Only in ocaml-3.12.1/otherlibs/unix: geteuid.o
+Only in ocaml-3.12.1/otherlibs/unix: getgid.o
+Only in ocaml-3.12.1/otherlibs/unix: getgr.o
+Only in ocaml-3.12.1/otherlibs/unix: getgroups.o
+Only in ocaml-3.12.1/otherlibs/unix: gethostname.o
+Only in ocaml-3.12.1/otherlibs/unix: gethost.o
+Only in ocaml-3.12.1/otherlibs/unix: getlogin.o
+Only in ocaml-3.12.1/otherlibs/unix: getnameinfo.o
+Only in ocaml-3.12.1/otherlibs/unix: getpeername.o
+Only in ocaml-3.12.1/otherlibs/unix: getpid.o
+Only in ocaml-3.12.1/otherlibs/unix: getppid.o
+Only in ocaml-3.12.1/otherlibs/unix: getproto.o
+Only in ocaml-3.12.1/otherlibs/unix: getpw.o
+Only in ocaml-3.12.1/otherlibs/unix: getserv.o
+Only in ocaml-3.12.1/otherlibs/unix: getsockname.o
+Only in ocaml-3.12.1/otherlibs/unix: gettimeofday.o
+Only in ocaml-3.12.1/otherlibs/unix: getuid.o
+Only in ocaml-3.12.1/otherlibs/unix: gmtime.o
+Only in ocaml-3.12.1/otherlibs/unix: initgroups.o
+Only in ocaml-3.12.1/otherlibs/unix: isatty.o
+Only in ocaml-3.12.1/otherlibs/unix: itimer.o
+Only in ocaml-3.12.1/otherlibs/unix: kill.o
+Only in ocaml-3.12.1/otherlibs/unix: libunix.a
+Only in ocaml-3.12.1/otherlibs/unix: link.o
+Only in ocaml-3.12.1/otherlibs/unix: listen.o
+Only in ocaml-3.12.1/otherlibs/unix: lockf.o
+Only in ocaml-3.12.1/otherlibs/unix: lseek.o
+Only in ocaml-3.12.1/otherlibs/unix: mkdir.o
+Only in ocaml-3.12.1/otherlibs/unix: mkfifo.o
+Only in ocaml-3.12.1/otherlibs/unix: nice.o
+Only in ocaml-3.12.1/otherlibs/unix: opendir.o
+Only in ocaml-3.12.1/otherlibs/unix: open.o
+Only in ocaml-3.12.1/otherlibs/unix: pipe.o
+Only in ocaml-3.12.1/otherlibs/unix: putenv.o
+Only in ocaml-3.12.1/otherlibs/unix: readdir.o
+Only in ocaml-3.12.1/otherlibs/unix: readlink.o
+Only in ocaml-3.12.1/otherlibs/unix: read.o
+Only in ocaml-3.12.1/otherlibs/unix: rename.o
+Only in ocaml-3.12.1/otherlibs/unix: rewinddir.o
+Only in ocaml-3.12.1/otherlibs/unix: rmdir.o
+Only in ocaml-3.12.1/otherlibs/unix: select.o
+Only in ocaml-3.12.1/otherlibs/unix: sendrecv.o
+Only in ocaml-3.12.1/otherlibs/unix: setgid.o
+Only in ocaml-3.12.1/otherlibs/unix: setgroups.o
+Only in ocaml-3.12.1/otherlibs/unix: setsid.o
+Only in ocaml-3.12.1/otherlibs/unix: setuid.o
+Only in ocaml-3.12.1/otherlibs/unix: shutdown.o
+Only in ocaml-3.12.1/otherlibs/unix: signals.o
+Only in ocaml-3.12.1/otherlibs/unix: sleep.o
+Only in ocaml-3.12.1/otherlibs/unix: socketaddr.o
+Only in ocaml-3.12.1/otherlibs/unix: socket.o
+Only in ocaml-3.12.1/otherlibs/unix: socketpair.o
+Only in ocaml-3.12.1/otherlibs/unix: sockopt.o
+Only in ocaml-3.12.1/otherlibs/unix: stat.o
+Only in ocaml-3.12.1/otherlibs/unix: strofaddr.o
+Only in ocaml-3.12.1/otherlibs/unix: symlink.o
+Only in ocaml-3.12.1/otherlibs/unix: termios.o
+Only in ocaml-3.12.1/otherlibs/unix: time.o
+Only in ocaml-3.12.1/otherlibs/unix: times.o
+Only in ocaml-3.12.1/otherlibs/unix: truncate.o
+Only in ocaml-3.12.1/otherlibs/unix: umask.o
+Only in ocaml-3.12.1/otherlibs/unix: unix.a
+Only in ocaml-3.12.1/otherlibs/unix: unix.cma
+Only in ocaml-3.12.1/otherlibs/unix: unix.cmi
+Only in ocaml-3.12.1/otherlibs/unix: unix.cmo
+Only in ocaml-3.12.1/otherlibs/unix: unix.cmx
+Only in ocaml-3.12.1/otherlibs/unix: unix.cmxa
+Only in ocaml-3.12.1/otherlibs/unix: unixLabels.cmi
+Only in ocaml-3.12.1/otherlibs/unix: unixLabels.cmo
+Only in ocaml-3.12.1/otherlibs/unix: unixLabels.cmx
+Only in ocaml-3.12.1/otherlibs/unix: unixLabels.o
+Only in ocaml-3.12.1/otherlibs/unix: unix.o
+Only in ocaml-3.12.1/otherlibs/unix: unixsupport.o
+Only in ocaml-3.12.1/otherlibs/unix: unlink.o
+Only in ocaml-3.12.1/otherlibs/unix: utimes.o
+Only in ocaml-3.12.1/otherlibs/unix: wait.o
+Only in ocaml-3.12.1/otherlibs/unix: write.o
+Only in ocaml-3.12.1/parsing: asttypes.cmi
+Only in ocaml-3.12.1/parsing: lexer.cmi
+Only in ocaml-3.12.1/parsing: lexer.cmo
+Only in ocaml-3.12.1/parsing: lexer.ml
+Only in ocaml-3.12.1/parsing: linenum.cmi
+Only in ocaml-3.12.1/parsing: linenum.cmo
+Only in ocaml-3.12.1/parsing: linenum.ml
+Only in ocaml-3.12.1/parsing: location.cmi
+Only in ocaml-3.12.1/parsing: location.cmo
+Only in ocaml-3.12.1/parsing: longident.cmi
+Only in ocaml-3.12.1/parsing: longident.cmo
+Only in ocaml-3.12.1/parsing: parse.cmi
+Only in ocaml-3.12.1/parsing: parse.cmo
+Only in ocaml-3.12.1/parsing: parser.cmi
+Only in ocaml-3.12.1/parsing: parser.cmo
+Only in ocaml-3.12.1/parsing: parser.ml
+Only in ocaml-3.12.1/parsing: parser.mli
+Only in ocaml-3.12.1/parsing: parser.output
+Only in ocaml-3.12.1/parsing: parsetree.cmi
+Only in ocaml-3.12.1/parsing: printast.cmi
+Only in ocaml-3.12.1/parsing: printast.cmo
+Only in ocaml-3.12.1/parsing: syntaxerr.cmi
+Only in ocaml-3.12.1/parsing: syntaxerr.cmo
+Only in ocaml-3.12.1/stdlib: arg.cmi
+Only in ocaml-3.12.1/stdlib: arg.cmo
+Only in ocaml-3.12.1/stdlib: arg.cmx
+Only in ocaml-3.12.1/stdlib: arg.o
+Only in ocaml-3.12.1/stdlib: array.cmi
+Only in ocaml-3.12.1/stdlib: array.cmo
+Only in ocaml-3.12.1/stdlib: array.cmx
+Only in ocaml-3.12.1/stdlib: arrayLabels.cmi
+Only in ocaml-3.12.1/stdlib: arrayLabels.cmo
+Only in ocaml-3.12.1/stdlib: arrayLabels.cmx
+Only in ocaml-3.12.1/stdlib: arrayLabels.o
+Only in ocaml-3.12.1/stdlib: array.o
+Only in ocaml-3.12.1/stdlib: buffer.cmi
+Only in ocaml-3.12.1/stdlib: buffer.cmo
+Only in ocaml-3.12.1/stdlib: buffer.cmx
+Only in ocaml-3.12.1/stdlib: buffer.o
+Only in ocaml-3.12.1/stdlib: callback.cmi
+Only in ocaml-3.12.1/stdlib: callback.cmo
+Only in ocaml-3.12.1/stdlib: callback.cmx
+Only in ocaml-3.12.1/stdlib: callback.o
+Only in ocaml-3.12.1/stdlib: caml
+Only in ocaml-3.12.1/stdlib: camlheader
+Only in ocaml-3.12.1/stdlib: camlheader_ur
+Only in ocaml-3.12.1/stdlib: camlinternalLazy.cmi
+Only in ocaml-3.12.1/stdlib: camlinternalLazy.cmo
+Only in ocaml-3.12.1/stdlib: camlinternalLazy.cmx
+Only in ocaml-3.12.1/stdlib: camlinternalLazy.o
+Only in ocaml-3.12.1/stdlib: camlinternalMod.cmi
+Only in ocaml-3.12.1/stdlib: camlinternalMod.cmo
+Only in ocaml-3.12.1/stdlib: camlinternalMod.cmx
+Only in ocaml-3.12.1/stdlib: camlinternalMod.o
+Only in ocaml-3.12.1/stdlib: camlinternalOO.cmi
+Only in ocaml-3.12.1/stdlib: camlinternalOO.cmo
+Only in ocaml-3.12.1/stdlib: camlinternalOO.cmx
+Only in ocaml-3.12.1/stdlib: camlinternalOO.o
+Only in ocaml-3.12.1/stdlib: char.cmi
+Only in ocaml-3.12.1/stdlib: char.cmo
+Only in ocaml-3.12.1/stdlib: char.cmx
+Only in ocaml-3.12.1/stdlib: char.o
+Only in ocaml-3.12.1/stdlib: complex.cmi
+Only in ocaml-3.12.1/stdlib: complex.cmo
+Only in ocaml-3.12.1/stdlib: complex.cmx
+Only in ocaml-3.12.1/stdlib: complex.o
+Only in ocaml-3.12.1/stdlib: digest.cmi
+Only in ocaml-3.12.1/stdlib: digest.cmo
+Only in ocaml-3.12.1/stdlib: digest.cmx
+Only in ocaml-3.12.1/stdlib: digest.o
+Only in ocaml-3.12.1/stdlib: filename.cmi
+Only in ocaml-3.12.1/stdlib: filename.cmo
+Only in ocaml-3.12.1/stdlib: filename.cmx
+Only in ocaml-3.12.1/stdlib: filename.o
+Only in ocaml-3.12.1/stdlib: format.cmi
+Only in ocaml-3.12.1/stdlib: format.cmo
+Only in ocaml-3.12.1/stdlib: format.cmx
+Only in ocaml-3.12.1/stdlib: format.o
+Only in ocaml-3.12.1/stdlib: gc.cmi
+Only in ocaml-3.12.1/stdlib: gc.cmo
+Only in ocaml-3.12.1/stdlib: gc.cmx
+Only in ocaml-3.12.1/stdlib: gc.o
+Only in ocaml-3.12.1/stdlib: genlex.cmi
+Only in ocaml-3.12.1/stdlib: genlex.cmo
+Only in ocaml-3.12.1/stdlib: genlex.cmx
+Only in ocaml-3.12.1/stdlib: genlex.o
+Only in ocaml-3.12.1/stdlib: hashtbl.cmi
+Only in ocaml-3.12.1/stdlib: hashtbl.cmo
+Only in ocaml-3.12.1/stdlib: hashtbl.cmx
+Only in ocaml-3.12.1/stdlib: hashtbl.o
+Only in ocaml-3.12.1/stdlib: int32.cmi
+Only in ocaml-3.12.1/stdlib: int32.cmo
+Only in ocaml-3.12.1/stdlib: int32.cmx
+Only in ocaml-3.12.1/stdlib: int32.o
+Only in ocaml-3.12.1/stdlib: int64.cmi
+Only in ocaml-3.12.1/stdlib: int64.cmo
+Only in ocaml-3.12.1/stdlib: int64.cmx
+Only in ocaml-3.12.1/stdlib: int64.o
+Only in ocaml-3.12.1/stdlib: lazy.cmi
+Only in ocaml-3.12.1/stdlib: lazy.cmo
+Only in ocaml-3.12.1/stdlib: lazy.cmx
+Only in ocaml-3.12.1/stdlib: lazy.o
+Only in ocaml-3.12.1/stdlib: lexing.cmi
+Only in ocaml-3.12.1/stdlib: lexing.cmo
+Only in ocaml-3.12.1/stdlib: lexing.cmx
+Only in ocaml-3.12.1/stdlib: lexing.o
+Only in ocaml-3.12.1/stdlib: libasmrun.a
+Only in ocaml-3.12.1/stdlib: libcamlrun.a
+Only in ocaml-3.12.1/stdlib: list.cmi
+Only in ocaml-3.12.1/stdlib: list.cmo
+Only in ocaml-3.12.1/stdlib: list.cmx
+Only in ocaml-3.12.1/stdlib: listLabels.cmi
+Only in ocaml-3.12.1/stdlib: listLabels.cmo
+Only in ocaml-3.12.1/stdlib: listLabels.cmx
+Only in ocaml-3.12.1/stdlib: listLabels.o
+Only in ocaml-3.12.1/stdlib: list.o
+diff -r -C 2 ocaml-3.12.1.orig/stdlib/Makefile.shared ocaml-3.12.1/stdlib/Makefile.shared
+*** ocaml-3.12.1.orig/stdlib/Makefile.shared	2010-05-21 13:28:21.000000000 +0200
+--- ocaml-3.12.1/stdlib/Makefile.shared	2013-08-07 15:30:48.420278295 +0200
+***************
+*** 14,19 ****
+  # $Id: Makefile.shared 10448 2010-05-21 11:28:21Z doligez $
+  
+  include ../config/Makefile
+! RUNTIME=../boot/ocamlrun
+  COMPILER=../ocamlc
+  CAMLC=$(RUNTIME) $(COMPILER)
+--- 14,21 ----
+  # $Id: Makefile.shared 10448 2010-05-21 11:28:21Z doligez $
+  
++ OCAMLHOST=$(HOME)/toolchain/ocaml-3.12.1.host
++ 
+  include ../config/Makefile
+! RUNTIME=$(OCAMLHOST)//boot/ocamlrun
+  COMPILER=../ocamlc
+  CAMLC=$(RUNTIME) $(COMPILER)
+Only in ocaml-3.12.1/stdlib: map.cmi
+Only in ocaml-3.12.1/stdlib: map.cmo
+Only in ocaml-3.12.1/stdlib: map.cmx
+Only in ocaml-3.12.1/stdlib: map.o
+Only in ocaml-3.12.1/stdlib: marshal.cmi
+Only in ocaml-3.12.1/stdlib: marshal.cmo
+Only in ocaml-3.12.1/stdlib: marshal.cmx
+Only in ocaml-3.12.1/stdlib: marshal.o
+Only in ocaml-3.12.1/stdlib: moreLabels.cmi
+Only in ocaml-3.12.1/stdlib: moreLabels.cmo
+Only in ocaml-3.12.1/stdlib: moreLabels.cmx
+Only in ocaml-3.12.1/stdlib: moreLabels.o
+Only in ocaml-3.12.1/stdlib: nativeint.cmi
+Only in ocaml-3.12.1/stdlib: nativeint.cmo
+Only in ocaml-3.12.1/stdlib: nativeint.cmx
+Only in ocaml-3.12.1/stdlib: nativeint.o
+Only in ocaml-3.12.1/stdlib: obj.cmi
+Only in ocaml-3.12.1/stdlib: obj.cmo
+Only in ocaml-3.12.1/stdlib: obj.cmx
+Only in ocaml-3.12.1/stdlib: obj.o
+Only in ocaml-3.12.1/stdlib: oo.cmi
+Only in ocaml-3.12.1/stdlib: oo.cmo
+Only in ocaml-3.12.1/stdlib: oo.cmx
+Only in ocaml-3.12.1/stdlib: oo.o
+Only in ocaml-3.12.1/stdlib: parsing.cmi
+Only in ocaml-3.12.1/stdlib: parsing.cmo
+Only in ocaml-3.12.1/stdlib: parsing.cmx
+Only in ocaml-3.12.1/stdlib: parsing.o
+Only in ocaml-3.12.1/stdlib: pervasives.cmi
+Only in ocaml-3.12.1/stdlib: pervasives.cmo
+Only in ocaml-3.12.1/stdlib: pervasives.cmx
+Only in ocaml-3.12.1/stdlib: pervasives.o
+Only in ocaml-3.12.1/stdlib: printexc.cmi
+Only in ocaml-3.12.1/stdlib: printexc.cmo
+Only in ocaml-3.12.1/stdlib: printexc.cmx
+Only in ocaml-3.12.1/stdlib: printexc.o
+Only in ocaml-3.12.1/stdlib: printf.cmi
+Only in ocaml-3.12.1/stdlib: printf.cmo
+Only in ocaml-3.12.1/stdlib: printf.cmx
+Only in ocaml-3.12.1/stdlib: printf.o
+Only in ocaml-3.12.1/stdlib: queue.cmi
+Only in ocaml-3.12.1/stdlib: queue.cmo
+Only in ocaml-3.12.1/stdlib: queue.cmx
+Only in ocaml-3.12.1/stdlib: queue.o
+Only in ocaml-3.12.1/stdlib: random.cmi
+Only in ocaml-3.12.1/stdlib: random.cmo
+Only in ocaml-3.12.1/stdlib: random.cmx
+Only in ocaml-3.12.1/stdlib: random.o
+Only in ocaml-3.12.1/stdlib: scanf.cmi
+Only in ocaml-3.12.1/stdlib: scanf.cmo
+Only in ocaml-3.12.1/stdlib: scanf.cmx
+Only in ocaml-3.12.1/stdlib: scanf.o
+Only in ocaml-3.12.1/stdlib: set.cmi
+Only in ocaml-3.12.1/stdlib: set.cmo
+Only in ocaml-3.12.1/stdlib: set.cmx
+Only in ocaml-3.12.1/stdlib: set.o
+Only in ocaml-3.12.1/stdlib: sort.cmi
+Only in ocaml-3.12.1/stdlib: sort.cmo
+Only in ocaml-3.12.1/stdlib: sort.cmx
+Only in ocaml-3.12.1/stdlib: sort.o
+Only in ocaml-3.12.1/stdlib: stack.cmi
+Only in ocaml-3.12.1/stdlib: stack.cmo
+Only in ocaml-3.12.1/stdlib: stack.cmx
+Only in ocaml-3.12.1/stdlib: stack.o
+Only in ocaml-3.12.1/stdlib: std_exit.cmi
+Only in ocaml-3.12.1/stdlib: std_exit.cmo
+Only in ocaml-3.12.1/stdlib: std_exit.cmx
+Only in ocaml-3.12.1/stdlib: std_exit.o
+Only in ocaml-3.12.1/stdlib: stdLabels.cmi
+Only in ocaml-3.12.1/stdlib: stdLabels.cmo
+Only in ocaml-3.12.1/stdlib: stdLabels.cmx
+Only in ocaml-3.12.1/stdlib: stdLabels.o
+Only in ocaml-3.12.1/stdlib: stdlib.a
+Only in ocaml-3.12.1/stdlib: stdlib.cma
+Only in ocaml-3.12.1/stdlib: stdlib.cmxa
+Only in ocaml-3.12.1/stdlib: stream.cmi
+Only in ocaml-3.12.1/stdlib: stream.cmo
+Only in ocaml-3.12.1/stdlib: stream.cmx
+Only in ocaml-3.12.1/stdlib: stream.o
+Only in ocaml-3.12.1/stdlib: string.cmi
+Only in ocaml-3.12.1/stdlib: string.cmo
+Only in ocaml-3.12.1/stdlib: string.cmx
+Only in ocaml-3.12.1/stdlib: stringLabels.cmi
+Only in ocaml-3.12.1/stdlib: stringLabels.cmo
+Only in ocaml-3.12.1/stdlib: stringLabels.cmx
+Only in ocaml-3.12.1/stdlib: stringLabels.o
+Only in ocaml-3.12.1/stdlib: string.o
+Only in ocaml-3.12.1/stdlib: sys.cmi
+Only in ocaml-3.12.1/stdlib: sys.cmo
+Only in ocaml-3.12.1/stdlib: sys.cmx
+Only in ocaml-3.12.1/stdlib: sys.ml
+Only in ocaml-3.12.1/stdlib: sys.o
+Only in ocaml-3.12.1/stdlib: weak.cmi
+Only in ocaml-3.12.1/stdlib: weak.cmo
+Only in ocaml-3.12.1/stdlib: weak.cmx
+Only in ocaml-3.12.1/stdlib: weak.o
+Only in ocaml-3.12.1/tools: cvt_emit
+Only in ocaml-3.12.1/tools: cvt_emit.cmi
+Only in ocaml-3.12.1/tools: cvt_emit.cmo
+Only in ocaml-3.12.1/tools: cvt_emit.ml
+Only in ocaml-3.12.1/tools: depend.cmi
+Only in ocaml-3.12.1/tools: depend.cmo
+Only in ocaml-3.12.1/tools: dumpobj
+Only in ocaml-3.12.1/tools: dumpobj.cmi
+Only in ocaml-3.12.1/tools: dumpobj.cmo
+diff -r -C 2 ocaml-3.12.1.orig/tools/Makefile.shared ocaml-3.12.1/tools/Makefile.shared
+*** ocaml-3.12.1.orig/tools/Makefile.shared	2010-10-15 17:36:55.000000000 +0200
+--- ocaml-3.12.1/tools/Makefile.shared	2013-08-07 15:32:08.192280198 +0200
+***************
+*** 15,19 ****
+  include ../config/Makefile
+  
+! CAMLRUN=../boot/ocamlrun
+  CAMLC=$(CAMLRUN) ../boot/ocamlc -strict-sequence -nostdlib -I ../boot
+  CAMLOPT=$(CAMLRUN) ../ocamlopt -nostdlib -I ../stdlib
+--- 15,21 ----
+  include ../config/Makefile
+  
+! OCAMLHOST=$(HOME)/toolchain/ocaml-3.12.1.host
+! 
+! CAMLRUN=$(OCAMLHOST)/boot/ocamlrun
+  CAMLC=$(CAMLRUN) ../boot/ocamlc -strict-sequence -nostdlib -I ../boot
+  CAMLOPT=$(CAMLRUN) ../ocamlopt -nostdlib -I ../stdlib
+Only in ocaml-3.12.1/tools: myocamlbuild_config.cmi
+Only in ocaml-3.12.1/tools: myocamlbuild_config.cmo
+Only in ocaml-3.12.1/tools: myocamlbuild_config.ml
+Only in ocaml-3.12.1/tools: objinfo
+Only in ocaml-3.12.1/tools: objinfo.cmi
+Only in ocaml-3.12.1/tools: objinfo.cmo
+Only in ocaml-3.12.1/tools: objinfo_helper
+Only in ocaml-3.12.1/tools: ocamlcp
+Only in ocaml-3.12.1/tools: ocamlcp.cmi
+Only in ocaml-3.12.1/tools: ocamlcp.cmo
+Only in ocaml-3.12.1/tools: ocamldep
+Only in ocaml-3.12.1/tools: ocamldep.cmi
+Only in ocaml-3.12.1/tools: ocamldep.cmo
+Only in ocaml-3.12.1/tools: ocamlmklib
+Only in ocaml-3.12.1/tools: ocamlmklib.cmi
+Only in ocaml-3.12.1/tools: ocamlmklib.cmo
+Only in ocaml-3.12.1/tools: ocamlmklib.ml
+Only in ocaml-3.12.1/tools: ocamlmktop
+Only in ocaml-3.12.1/tools: ocamlprof
+Only in ocaml-3.12.1/tools: ocamlprof.cmi
+Only in ocaml-3.12.1/tools: ocamlprof.cmo
+Only in ocaml-3.12.1/tools: opnames.cmi
+Only in ocaml-3.12.1/tools: opnames.cmo
+Only in ocaml-3.12.1/tools: opnames.ml
+Only in ocaml-3.12.1/tools: profiling.cmi
+Only in ocaml-3.12.1/tools: profiling.cmo
+Only in ocaml-3.12.1/toplevel: expunge.cmi
+Only in ocaml-3.12.1/toplevel: expunge.cmo
+Only in ocaml-3.12.1/toplevel: genprintval.cmi
+Only in ocaml-3.12.1/toplevel: genprintval.cmo
+Only in ocaml-3.12.1/toplevel: topdirs.cmi
+Only in ocaml-3.12.1/toplevel: topdirs.cmo
+Only in ocaml-3.12.1/toplevel: toplevellib.cma
+Only in ocaml-3.12.1/toplevel: toploop.cmi
+Only in ocaml-3.12.1/toplevel: toploop.cmo
+Only in ocaml-3.12.1/toplevel: topmain.cmi
+Only in ocaml-3.12.1/toplevel: topmain.cmo
+Only in ocaml-3.12.1/toplevel: topstart.cmi
+Only in ocaml-3.12.1/toplevel: topstart.cmo
+Only in ocaml-3.12.1/toplevel: trace.cmi
+Only in ocaml-3.12.1/toplevel: trace.cmo
+Only in ocaml-3.12.1/typing: annot.cmi
+Only in ocaml-3.12.1/typing: btype.cmi
+Only in ocaml-3.12.1/typing: btype.cmo
+Only in ocaml-3.12.1/typing: ctype.cmi
+Only in ocaml-3.12.1/typing: ctype.cmo
+Only in ocaml-3.12.1/typing: datarepr.cmi
+Only in ocaml-3.12.1/typing: datarepr.cmo
+Only in ocaml-3.12.1/typing: env.cmi
+Only in ocaml-3.12.1/typing: env.cmo
+Only in ocaml-3.12.1/typing: ident.cmi
+Only in ocaml-3.12.1/typing: ident.cmo
+Only in ocaml-3.12.1/typing: includeclass.cmi
+Only in ocaml-3.12.1/typing: includeclass.cmo
+Only in ocaml-3.12.1/typing: includecore.cmi
+Only in ocaml-3.12.1/typing: includecore.cmo
+Only in ocaml-3.12.1/typing: includemod.cmi
+Only in ocaml-3.12.1/typing: includemod.cmo
+Only in ocaml-3.12.1/typing: mtype.cmi
+Only in ocaml-3.12.1/typing: mtype.cmo
+Only in ocaml-3.12.1/typing: oprint.cmi
+Only in ocaml-3.12.1/typing: oprint.cmo
+Only in ocaml-3.12.1/typing: outcometree.cmi
+Only in ocaml-3.12.1/typing: parmatch.cmi
+Only in ocaml-3.12.1/typing: parmatch.cmo
+Only in ocaml-3.12.1/typing: path.cmi
+Only in ocaml-3.12.1/typing: path.cmo
+Only in ocaml-3.12.1/typing: predef.cmi
+Only in ocaml-3.12.1/typing: predef.cmo
+Only in ocaml-3.12.1/typing: primitive.cmi
+Only in ocaml-3.12.1/typing: primitive.cmo
+Only in ocaml-3.12.1/typing: printtyp.cmi
+Only in ocaml-3.12.1/typing: printtyp.cmo
+Only in ocaml-3.12.1/typing: stypes.cmi
+Only in ocaml-3.12.1/typing: stypes.cmo
+Only in ocaml-3.12.1/typing: subst.cmi
+Only in ocaml-3.12.1/typing: subst.cmo
+Only in ocaml-3.12.1/typing: typeclass.cmi
+Only in ocaml-3.12.1/typing: typeclass.cmo
+Only in ocaml-3.12.1/typing: typecore.cmi
+Only in ocaml-3.12.1/typing: typecore.cmo
+Only in ocaml-3.12.1/typing: typedecl.cmi
+Only in ocaml-3.12.1/typing: typedecl.cmo
+Only in ocaml-3.12.1/typing: typedtree.cmi
+Only in ocaml-3.12.1/typing: typedtree.cmo
+Only in ocaml-3.12.1/typing: typemod.cmi
+Only in ocaml-3.12.1/typing: typemod.cmo
+Only in ocaml-3.12.1/typing: types.cmi
+Only in ocaml-3.12.1/typing: types.cmo
+Only in ocaml-3.12.1/typing: typetexp.cmi
+Only in ocaml-3.12.1/typing: typetexp.cmo
+Only in ocaml-3.12.1/typing: unused_var.cmi
+Only in ocaml-3.12.1/typing: unused_var.cmo
+Only in ocaml-3.12.1/utils: ccomp.cmi
+Only in ocaml-3.12.1/utils: ccomp.cmo
+diff -r -C 2 ocaml-3.12.1.orig/utils/ccomp.ml ocaml-3.12.1/utils/ccomp.ml
+*** ocaml-3.12.1.orig/utils/ccomp.ml	2010-04-28 14:09:32.000000000 +0200
+--- ocaml-3.12.1/utils/ccomp.ml	2013-08-07 16:20:21.248349132 +0200
+***************
+*** 75,79 ****
+    | _ ->
+        let r1 =
+!         command(Printf.sprintf "ar rc %s %s"
+                  quoted_archive (quote_files file_list)) in
+        if r1 <> 0 || String.length Config.ranlib = 0
+--- 75,80 ----
+    | _ ->
+        let r1 =
+!         command(Printf.sprintf "%s rc %s %s"
+!             Config.arcmd
+                  quoted_archive (quote_files file_list)) in
+        if r1 <> 0 || String.length Config.ranlib = 0
+Only in ocaml-3.12.1/utils: clflags.cmi
+Only in ocaml-3.12.1/utils: clflags.cmo
+Only in ocaml-3.12.1/utils: config.cmi
+Only in ocaml-3.12.1/utils: config.cmo
+Only in ocaml-3.12.1/utils: config.ml
+diff -r -C 2 ocaml-3.12.1.orig/utils/config.mli ocaml-3.12.1/utils/config.mli
+*** ocaml-3.12.1.orig/utils/config.mli	2010-05-19 13:29:38.000000000 +0200
+--- ocaml-3.12.1/utils/config.mli	2013-08-07 16:20:45.264349704 +0200
+***************
+*** 48,51 ****
+--- 48,52 ----
+  val ranlib: string
+          (* Command to randomize a library, or "" if not needed *)
++ val arcmd: string
+  val cc_profile : string
+          (* The command line option to the C compiler to enable profiling. *)
+diff -r -C 2 ocaml-3.12.1.orig/utils/config.mlp ocaml-3.12.1/utils/config.mlp
+*** ocaml-3.12.1.orig/utils/config.mlp	2010-05-19 13:29:38.000000000 +0200
+--- ocaml-3.12.1/utils/config.mlp	2013-08-07 16:18:52.148347011 +0200
+***************
+*** 45,48 ****
+--- 45,49 ----
+  let native_pack_linker = "%%PACKLD%%"
+  let ranlib = "%%RANLIBCMD%%"
++ let arcmd = "%%ARCMD%%"
+  let cc_profile = "%%CC_PROFILE%%"
+  let mkdll = "%%MKDLL%%"
+Only in ocaml-3.12.1/utils: consistbl.cmi
+Only in ocaml-3.12.1/utils: consistbl.cmo
+Only in ocaml-3.12.1/utils: misc.cmi
+Only in ocaml-3.12.1/utils: misc.cmo
+Only in ocaml-3.12.1/utils: tbl.cmi
+Only in ocaml-3.12.1/utils: tbl.cmo
+Only in ocaml-3.12.1/utils: terminfo.cmi
+Only in ocaml-3.12.1/utils: terminfo.cmo
+Only in ocaml-3.12.1/utils: warnings.cmi
+Only in ocaml-3.12.1/utils: warnings.cmo
+Only in ocaml-3.12.1/yacc: closure.o
+Only in ocaml-3.12.1/yacc: error.o
+Only in ocaml-3.12.1/yacc: lalr.o
+Only in ocaml-3.12.1/yacc: lr0.o
+Only in ocaml-3.12.1/yacc: main.o
+Only in ocaml-3.12.1/yacc: mkpar.o
+Only in ocaml-3.12.1/yacc: ocamlyacc
+Only in ocaml-3.12.1/yacc: output.o
+Only in ocaml-3.12.1/yacc: reader.o
+Only in ocaml-3.12.1/yacc: skeleton.o
+Only in ocaml-3.12.1/yacc: symtab.o
+Only in ocaml-3.12.1/yacc: verbose.o
+Only in ocaml-3.12.1/yacc: version.h
+Only in ocaml-3.12.1/yacc: warshall.o
